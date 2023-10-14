@@ -1,0 +1,6 @@
+outputs/*
+transactions/*
+.DS_Store
+.ignore/*
+trades
+aagr_config.go
