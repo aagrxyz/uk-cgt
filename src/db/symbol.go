@@ -26,6 +26,7 @@ type Symbol struct {
 	YahooTicker   string   `json:"yahoo_ticker"`
 	YahooCurrency string   `json:"yahoo_currency"`
 	AssetType     string   `json:"asset_type"`
+	ETFType       string   `json:"etf_type"`
 	Currency      string   `json:"currency"`
 }
 

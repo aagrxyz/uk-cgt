@@ -17,6 +17,7 @@ import (
 	"aagr.xyz/trades/src/record"
 	"aagr.xyz/trades/src/yahoo"
 	"github.com/go-resty/resty/v2"
+	"github.com/jedib0t/go-pretty/v6/table"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 )
@@ -166,7 +167,7 @@ func main() {
 	portfolio := holdings.Portfolio(state, yahooClient)
 	cgt, debug := holdings.CGT(state)
 
-	fmt.Println(portfolio)
+	fmt.Println(portfolio.Render())
 	fmt.Println(cgt)
 
 	if err := writeReport(portfolio, cgt, debug); err != nil {
@@ -175,10 +176,11 @@ func main() {
 
 }
 
-func writeReport(portfolio, cgt, debug string) error {
+func writeReport(portfolio table.Writer, cgt, debug string) error {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("DATE: %s\n\n", time.Now().Format(timeFmt)))
-	sb.WriteString(fmt.Sprintf("%s\n\n", portfolio))
+	sb.WriteString(fmt.Sprintf("%s\n\n", portfolio.Render()))
+	sb.WriteString(fmt.Sprintf("%s\n\n", portfolio.RenderCSV()))
 	sb.WriteString(fmt.Sprintf("%s\n\n", cgt))
 	sb.WriteString(fmt.Sprintf("%s\n\n", debug))
 	if err := os.WriteFile(path.Join(rootDir, reportFilename), []byte(sb.String()), 0644); err != nil {

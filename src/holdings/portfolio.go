@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"aagr.xyz/trades/src/db"
 	"aagr.xyz/trades/src/record"
@@ -86,29 +87,29 @@ func presentForex(currency record.Currency, yahooClient *resty.Client) float64 {
 }
 
 // Portfolio prints a report for the open positions
-func Portfolio(holdings map[string]*Holding, yahooClient *resty.Client) string {
+func Portfolio(holdings map[string]*Holding, yahooClient *resty.Client) table.Writer {
 	var totalCost, presentValue float64
 	t := table.NewWriter()
 	rowConfigAutoMerge := table.RowConfig{AutoMerge: true}
-	t.SetTitle("Current Holdings")
+	t.SetTitle(fmt.Sprintf("Current Holdings @ %s", time.Now().Format("2006-01-02 15:04:05")))
 	t.SetStyle(table.StyleLight)
 	t.AppendHeader(table.Row{
-		"Ticker", "Taxable", "Currency", "Quantity",
+		"Ticker", "Asset Type", "Taxable", "Currency", "Quantity",
 		"Avg Price", "Total Cost",
 		"Avg Price (GBP)", "Total Cost (GBP)",
 		"Present Price", "Present Value",
 		"Present Price (GBP)", "Present Value (GBP)",
 	})
 	t.SetColumnConfigs([]table.ColumnConfig{
-		{Number: 4, Transformer: tf},
 		{Number: 5, Transformer: tf},
 		{Number: 6, Transformer: tf},
 		{Number: 7, Transformer: tf},
-		{Number: 8, Transformer: tf, TransformerFooter: tf},
-		{Number: 9, Transformer: tf},
+		{Number: 8, Transformer: tf},
+		{Number: 9, Transformer: tf, TransformerFooter: tf},
 		{Number: 10, Transformer: tf},
 		{Number: 11, Transformer: tf},
-		{Number: 12, Transformer: tf, TransformerFooter: tf},
+		{Number: 12, Transformer: tf},
+		{Number: 13, Transformer: tf, TransformerFooter: tf},
 	})
 	t.SortBy([]table.SortBy{
 		{Number: 1},
@@ -116,9 +117,23 @@ func Portfolio(holdings map[string]*Holding, yahooClient *resty.Client) string {
 	for ticker, h := range holdings {
 		price := presentPrice(ticker, yahooClient)
 		forex := presentForex(h.currency, yahooClient)
+		var assetType string
+		if meta, err := db.TickerMeta(ticker); err != nil {
+			log.Errorf("Cannot get metadata about ticker, so setting type as N/A")
+			assetType = "N/A"
+		} else {
+			assetType = meta.AssetType
+			if assetType == "ETF" && meta.ETFType != "" {
+				assetType = meta.ETFType
+			}
+			if ticker == "GOOGL" || ticker == "GOOG" {
+				assetType = "GOOG"
+			}
+		}
 		if math.Abs(h.taxable.gbp.quantity-0.0) > epsilon {
 			t.AppendRow(table.Row{
 				ticker,
+				assetType,
 				"Y",
 				h.currency, h.taxable.gbp.quantity,
 				h.taxable.base.averageCost(), h.taxable.base.totalCost,
@@ -132,6 +147,7 @@ func Portfolio(holdings map[string]*Holding, yahooClient *resty.Client) string {
 		if math.Abs(h.cgtExempt.gbp.quantity-0.0) > epsilon {
 			t.AppendRow(table.Row{
 				ticker,
+				assetType,
 				"N",
 				h.currency, h.cgtExempt.gbp.quantity,
 				h.cgtExempt.base.averageCost(), h.cgtExempt.base.totalCost,
@@ -144,9 +160,9 @@ func Portfolio(holdings map[string]*Holding, yahooClient *resty.Client) string {
 		}
 	}
 	t.AppendFooter(table.Row{
-		"", "", "", "", "", "", "", totalCost, "", "", "", presentValue,
+		"", "", "", "", "", "", "", "", totalCost, "", "", "", presentValue,
 	})
-	return t.Render()
+	return t
 }
 
 // CGT returns a string containing report for CGT along with a debug string
