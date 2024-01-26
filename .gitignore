@@ -4,3 +4,4 @@ transactions/*
 .ignore/*
 trades
 aagr_config.go
+.vscode
