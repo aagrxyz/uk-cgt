@@ -61,10 +61,14 @@ func (p *msVestParser) ToRecord(contents []string) ([]*record.Record, error) {
 	return []*record.Record{r}, nil
 }
 
-type msWithdrawlParser struct{}
+type msWithdrawlParser struct {
+	transferAccount record.Account
+}
 
-func NewMSWithdraw() *msWithdrawlParser {
-	return &msWithdrawlParser{}
+func NewMSWithdraw(transferAccount record.Account) *msWithdrawlParser {
+	return &msWithdrawlParser{
+		transferAccount: transferAccount,
+	}
 }
 
 func (p *msWithdrawlParser) ValidateHeader(contents []string) error {
@@ -79,8 +83,42 @@ func (p *msWithdrawlParser) ValidateHeader(contents []string) error {
 	return headerMatches(want, contents)
 }
 
+func (p *msWithdrawlParser) transferRecord(contents []string) ([]*record.Record, error) {
+	r := &record.Record{
+		Broker:   morganStanleyBroker,
+		Action:   record.Transfer,
+		Ticker:   "GOOG",
+		Currency: record.USD,
+	}
+	var err error
+	r.Timestamp, err = time.Parse("02-Jan-2006", contents[0])
+	if err != nil {
+		return nil, fmt.Errorf("cannot parse date %s: %v", contents[0], err)
+	}
+	r.ShareCount, err = strconv.ParseFloat(contents[6], 64)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get share count: %v", err)
+	}
+	r.ShareCount = math.Abs(r.ShareCount)
+	r.Description = p.transferAccount.Name
+	price := strings.ReplaceAll(strings.ReplaceAll(contents[5], "$", ""), ",", "")
+	r.PricePerShare, err = strconv.ParseFloat(price, 64)
+	if err != nil {
+		return nil, fmt.Errorf("cannot parse price %s: %v", price, err)
+	}
+	r.ExchangeRate = db.GetForex(r.Timestamp, string(record.USD))
+	r.Total = r.PricePerShare * r.ShareCount * r.ExchangeRate
+	return []*record.Record{r}, nil
+}
 func (p *msWithdrawlParser) ToRecord(contents []string) ([]*record.Record, error) {
-	if contents[2] != "GSU Class C" || contents[3] != "Sale" {
+	if contents[2] != "GSU Class C" {
+		log.Warningf("invalid share class and/or type passed: %v, skipping", contents)
+		return nil, nil
+	}
+	if contents[3] == "Transfer" {
+		return p.transferRecord(contents)
+	}
+	if contents[3] != "Sale" {
 		log.Warningf("invalid share class and/or type passed: %v, skipping", contents)
 		return nil, nil
 	}

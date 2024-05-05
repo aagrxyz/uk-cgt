@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/csv"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"aagr.xyz/trades/src/db"
+	"aagr.xyz/trades/src/ghostfolio"
 	"aagr.xyz/trades/src/holdings"
 	"aagr.xyz/trades/src/parser"
 	"aagr.xyz/trades/src/record"
@@ -25,6 +27,7 @@ import (
 const (
 	transactionFilename = "outputs/merged_transactions.csv"
 	reportFilename      = "outputs/report.txt"
+	ghostfolioFile      = "outputs/ghostfolio.json"
 	timeFmt             = "2006-01-02 15:04:05"
 )
 
@@ -172,6 +175,18 @@ func main() {
 
 	if err := writeReport(portfolio, cgt, debug); err != nil {
 		log.Fatalf("cannot write report: %v", err)
+	}
+
+	activities, err := ghostfolio.ToActivities(records)
+	if err != nil {
+		log.Fatalf("cannot get activities for ghostfolio: %v", err)
+	}
+	marshalled, err := json.Marshal(activities)
+	if err != nil {
+		log.Fatalf("cannot marshal activities to json: %v", err)
+	}
+	if err := os.WriteFile(path.Join(rootDir, ghostfolioFile), marshalled, 0644); err != nil {
+		log.Fatalf("cannot write to ghostfolio file: %v", err)
 	}
 
 }

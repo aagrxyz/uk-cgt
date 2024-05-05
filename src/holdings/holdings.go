@@ -2,13 +2,13 @@ package holdings
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"sort"
 	"strings"
 	"time"
 
 	"aagr.xyz/trades/src/record"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 )
 
@@ -196,6 +196,9 @@ func calculateInternal(ticker string, records_orig []*record.Record) (*Holding, 
 			}
 		case record.Rename:
 			return nil, fmt.Errorf("rename record should not be present here")
+		case record.Transfer:
+			log.Warningf("transfer record passed to holidngs which groups by ticker and not account, this record has no implications: %v", r)
+			continue
 		case record.Buy:
 			// if this buy has been exhausted then just continue
 			if math.Abs(r.ShareCount-0.0) < epsilon {

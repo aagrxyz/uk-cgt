@@ -35,14 +35,17 @@ const (
 	Split
 	// Rename of a ticker
 	Rename
+	// Transfer from one account to another
+	Transfer
 )
 
 // TransactionOrder - On a single day, this is the order the records need to be sorted by
 var TransactionOrder = map[TransactionType]int{
-	Rename: 0,
-	Split:  1,
-	Sell:   2,
-	Buy:    3,
+	Rename:   0,
+	Split:    1,
+	Transfer: 2,
+	Sell:     3,
+	Buy:      4,
 }
 
 func (t TransactionType) String() string {
@@ -55,6 +58,8 @@ func (t TransactionType) String() string {
 		return "SPLIT"
 	case Rename:
 		return "RENAME"
+	case Transfer:
+		return "TRANSFER"
 	}
 	return ""
 }
@@ -70,12 +75,14 @@ func NewTransactionType(s string) TransactionType {
 		return Split
 	case "RENAME":
 		return Rename
+	case "TRANSFER":
+		return Transfer
 	}
 	return Unknown
 }
 
 func (t TransactionType) IsMetadataEvent() bool {
-	return t == Split || t == Rename
+	return t == Split || t == Rename || t == Transfer
 }
 
 func (t TransactionType) IsUnknown() bool {
@@ -144,9 +151,9 @@ type Record struct {
 	PricePerShare float64         `csv:"Price"`
 	Currency      Currency        `csv:"Currency"`
 	ExchangeRate  float64         `csv:"ExchangeRate"` // this is multiplied to get the total in gbp
-	Commission    float64         `csv:"Commission"`
-	Total         float64         `csv:"Total"`       // Total is always in GBP
-	Description   string          `csv:"Description"` // used for rename and split types
+	Commission    float64         `csv:"Commission"`   // Commission is always in GBP
+	Total         float64         `csv:"Total"`        // Total is always in GBP
+	Description   string          `csv:"Description"`  // used for rename and split types
 }
 
 func (r *Record) String() string {
