@@ -15,11 +15,15 @@ import (
 const ibkrBrokerName = "IBKR"
 
 type ibkrParser struct {
-	isCGTExempt bool
+	broker record.Account
 }
 
 func NewIBKR(cgtExempt bool) *ibkrParser {
-	return &ibkrParser{isCGTExempt: cgtExempt}
+	return &ibkrParser{broker: record.Account{
+		Name:      ibkrBrokerName,
+		Currency:  record.MULTIPLE,
+		CGTExempt: cgtExempt,
+	}}
 }
 
 func (p *ibkrParser) ValidateHeader(contents []string) error {
@@ -49,7 +53,7 @@ func (p *ibkrParser) ToRecord(contents []string) ([]*record.Record, error) {
 		return nil, nil
 	}
 
-	r := &record.Record{Broker: record.Account{Name: ibkrBrokerName, CGTExempt: p.isCGTExempt}}
+	r := &record.Record{Broker: p.broker}
 	var err error
 	// fill up timestamp
 	r.Timestamp, err = time.Parse(timeFmt, contents[0])
@@ -129,15 +133,14 @@ func (p *ibkrParser) ToRecord(contents []string) ([]*record.Record, error) {
 func (p *ibkrParser) forexRecord(trade *record.Record) *record.Record {
 	r := &record.Record{
 		Timestamp: trade.Timestamp,
-		// Forex is a cash and by default cannot be CGT exempt
-		Broker: record.CashBroker,
-		Ticker: string(trade.Currency),
-		Name:   string(trade.Currency),
+		Broker:    p.broker,
+		Ticker:    string(trade.Currency),
+		Name:      string(trade.Currency),
 		// amount of currency converted, total in GBP divided by exchange rate
 		ShareCount:    trade.Total / trade.ExchangeRate,
-		PricePerShare: trade.ExchangeRate,
-		Currency:      record.GBP,
-		ExchangeRate:  1.0,
+		PricePerShare: 1.0,
+		Currency:      trade.Currency,
+		ExchangeRate:  trade.ExchangeRate,
 		Commission:    0.0,
 		Total:         trade.Total,
 	}
@@ -147,7 +150,7 @@ func (p *ibkrParser) forexRecord(trade *record.Record) *record.Record {
 }
 
 func (p *ibkrParser) cashCurrencyRecord(contents []string) ([]*record.Record, error) {
-	r := &record.Record{Broker: record.CashBroker}
+	r := &record.Record{Broker: p.broker}
 	var err error
 	// fill up timestamp
 	r.Timestamp, err = time.Parse(timeFmt, contents[0])
@@ -164,9 +167,6 @@ func (p *ibkrParser) cashCurrencyRecord(contents []string) ([]*record.Record, er
 	if sellCurrency != record.GBP && buyCurrency != record.GBP {
 		return nil, fmt.Errorf("case where base currency or got currency is not GBP is not handled")
 	}
-
-	r.Currency = record.GBP
-	r.ExchangeRate = 1.0
 
 	r.Commission, err = strconv.ParseFloat(contents[8], 64)
 	if err != nil {
@@ -197,9 +197,11 @@ func (p *ibkrParser) cashCurrencyRecord(contents []string) ([]*record.Record, er
 		r.Name = string(buyCurrency)
 		// Record is like SELL 3000 GBP at 1.2 to get 4200 USD. We are storing we buying USD, so need to invert stuff
 		r.ShareCount = qty * price
-		r.PricePerShare = 1.0 / price
+		r.PricePerShare = 1.0
 		r.Total = qty + r.Commission
-
+		r.Currency = buyCurrency
+		r.ExchangeRate = 1.0 / price
+		r.Description = "SELL GBP"
 	} else if buyCurrency == record.GBP {
 		// This time we got GBP back, so sold something
 		r.Action = record.NewTransactionType("sell")
@@ -207,8 +209,11 @@ func (p *ibkrParser) cashCurrencyRecord(contents []string) ([]*record.Record, er
 		r.Name = string(sellCurrency)
 		// Record is like SELL 3000 EUR at 0.8 GBP to get 2400 GBP. So no inversion required
 		r.ShareCount = qty
-		r.PricePerShare = price
+		r.PricePerShare = 1.0
 		r.Total = qty*price - r.Commission
+		r.Currency = sellCurrency
+		r.ExchangeRate = price
+		r.Description = "BUY GBP"
 	}
 	return []*record.Record{r}, nil
 }

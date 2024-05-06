@@ -48,7 +48,6 @@ type statement struct {
 }
 
 var (
-	fxIsAsset        = flag.Bool("fx_is_asset", true, "Whether forex transactions are an asset")
 	transactionsFile = flag.String("transactions_file", "", "The file for merged transactions")
 
 	yahooClient *resty.Client
@@ -161,8 +160,15 @@ func main() {
 		log.Fatalf("cannot write transactions")
 	}
 
+	accounts, err := holdings.GetAccountStats(records)
+	if err != nil {
+		log.Fatalf("cannot get account stats: %v", err)
+	}
+
+	fmt.Println(accounts.Render())
+
 	// calculate holdings
-	state, err := holdings.Calculate(records, *fxIsAsset)
+	state, err := holdings.Calculate(records)
 	if err != nil {
 		log.Fatalf("Cannot compute holdings: %v", err)
 	}
@@ -173,7 +179,7 @@ func main() {
 	fmt.Println(portfolio.Render())
 	fmt.Println(cgt)
 
-	if err := writeReport(portfolio, cgt, debug); err != nil {
+	if err := writeReport(portfolio, accounts, cgt, debug); err != nil {
 		log.Fatalf("cannot write report: %v", err)
 	}
 
@@ -191,13 +197,14 @@ func main() {
 
 }
 
-func writeReport(portfolio table.Writer, cgt, debug string) error {
+func writeReport(portfolio table.Writer, accounts *holdings.AccountStats, cgt, debug string) error {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("DATE: %s\n\n", time.Now().Format(timeFmt)))
 	sb.WriteString(fmt.Sprintf("%s\n\n", portfolio.Render()))
 	sb.WriteString(fmt.Sprintf("%s\n\n", portfolio.RenderCSV()))
 	sb.WriteString(fmt.Sprintf("%s\n\n", cgt))
 	sb.WriteString(fmt.Sprintf("%s\n\n", debug))
+	sb.WriteString(accounts.Render())
 	if err := os.WriteFile(path.Join(rootDir, reportFilename), []byte(sb.String()), 0644); err != nil {
 		return fmt.Errorf("cannot output report: %v", err)
 	}

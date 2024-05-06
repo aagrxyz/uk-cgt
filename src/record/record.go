@@ -14,9 +14,6 @@ import (
 const timeFmt = "2006-01-02 15:04:05"
 
 var (
-	// CashBroker - by defualt cash i.e. forex transactions are not GCT exempt as ISAs can
-	// only contain GBP
-	CashBroker = Account{Name: "CASH", CGTExempt: false}
 	// GlobalBroker are transactions that are broker independent
 	GlobalBroker = Account{Name: "*", CGTExempt: false}
 )
@@ -35,17 +32,30 @@ const (
 	Split
 	// Rename of a ticker
 	Rename
+	// Transfer and Cash transactions are for house-keeping purposes and do not contribute to
+	// CGT calculations.
 	// Transfer from one account to another
-	Transfer
+	TransferOut
+	TransferIn
+	// CashIn - Pay in cash in an account
+	CashIn
+	// CashOut - withdraw cash
+	CashOut
+	// Dividend
+	Dividend
 )
 
 // TransactionOrder - On a single day, this is the order the records need to be sorted by
 var TransactionOrder = map[TransactionType]int{
-	Rename:   0,
-	Split:    1,
-	Transfer: 2,
-	Sell:     3,
-	Buy:      4,
+	Rename:      0,
+	Split:       1,
+	TransferOut: 2,
+	TransferIn:  3,
+	CashIn:      4,
+	Dividend:    5,
+	Sell:        6,
+	Buy:         7,
+	CashOut:     8,
 }
 
 func (t TransactionType) String() string {
@@ -58,8 +68,16 @@ func (t TransactionType) String() string {
 		return "SPLIT"
 	case Rename:
 		return "RENAME"
-	case Transfer:
-		return "TRANSFER"
+	case TransferIn:
+		return "TRANSFERIN"
+	case TransferOut:
+		return "TRANSFEROut"
+	case CashIn:
+		return "CASHIN"
+	case CashOut:
+		return "CASHOUT"
+	case Dividend:
+		return "DIVIDEND"
 	}
 	return ""
 }
@@ -75,18 +93,34 @@ func NewTransactionType(s string) TransactionType {
 		return Split
 	case "RENAME":
 		return Rename
-	case "TRANSFER":
-		return Transfer
+	case "TRANSFERIN":
+		return TransferIn
+	case "TRANSFEROUT":
+		return TransferOut
+	case "CASHIN":
+		return CashIn
+	case "CASHOUT":
+		return CashOut
+	case "DIVIDEND":
+		return Dividend
 	}
 	return Unknown
 }
 
 func (t TransactionType) IsMetadataEvent() bool {
-	return t == Split || t == Rename || t == Transfer
+	return t == Split || t == Rename || t == TransferIn || t == TransferOut
+}
+
+func (t TransactionType) IsCashEvent() bool {
+	return t == CashIn || t == CashOut
 }
 
 func (t TransactionType) IsUnknown() bool {
 	return t == Unknown
+}
+
+func (t TransactionType) IsDividend() bool {
+	return t == Dividend
 }
 
 // InverseAction returns the inverse of buy and sell
@@ -104,12 +138,13 @@ func InverseAction(t TransactionType) TransactionType {
 type Currency string
 
 const (
-	GBP Currency = "GBP"
-	GBX Currency = "GBX" // GBX refers to 1 pence. So 100 GBX = 1 GBP
-	USD Currency = "USD"
-	INR Currency = "INR"
-	EUR Currency = "EUR"
-	CHF Currency = "CHF"
+	GBP      Currency = "GBP"
+	GBX      Currency = "GBX" // GBX refers to 1 pence. So 100 GBX = 1 GBP
+	USD      Currency = "USD"
+	INR      Currency = "INR"
+	EUR      Currency = "EUR"
+	CHF      Currency = "CHF"
+	MULTIPLE Currency = "*"
 )
 
 // NewCurrency returns a new currency type enum
@@ -127,6 +162,8 @@ func NewCurrency(s string) Currency {
 		return EUR
 	case "CHF":
 		return CHF
+	case "*":
+		return MULTIPLE
 	}
 	return ""
 }
@@ -135,6 +172,8 @@ func NewCurrency(s string) Currency {
 type Account struct {
 	// If Name is set to "*", it implies a global event like a stock split or rename of ticker.
 	Name string
+	// Currency of the account
+	Currency Currency
 	// If CGTExempt is true, then transactions in this account are exempt from CGT calculation,
 	// but you can still see the profit/loss for it.
 	CGTExempt bool
@@ -171,7 +210,9 @@ func (r *Record) String() string {
 func (r *Record) Header() []string {
 	return []string{
 		"Timestamp",
-		"Broker",
+		"Account.Name",
+		"Account.Currency",
+		"Account.CGTExempt",
 		"Action",
 		"Ticker",
 		"Name",
@@ -182,7 +223,6 @@ func (r *Record) Header() []string {
 		"Commission",
 		"Total",
 		"Description",
-		"CGTExempt",
 	}
 }
 
@@ -191,6 +231,8 @@ func (r *Record) MarshalCSV() []string {
 	return []string{
 		r.Timestamp.Format(timeFmt),
 		string(r.Broker.Name),
+		string(r.Broker.Currency),
+		fmt.Sprintf("%t", r.Broker.CGTExempt),
 		r.Action.String(),
 		r.Ticker,
 		r.Name,
@@ -201,7 +243,6 @@ func (r *Record) MarshalCSV() []string {
 		fmt.Sprintf("%f", r.Commission),
 		fmt.Sprintf("%f", r.Total),
 		r.Description,
-		fmt.Sprintf("%t", r.Broker.CGTExempt),
 	}
 }
 
@@ -213,10 +254,6 @@ func (r *Record) ValidateAndEnrich() error {
 		r.ExchangeRate = 1.0
 	}
 	currency := r.Currency
-	if r.Broker == CashBroker {
-		r.Name = r.Ticker
-		currency = Currency(r.Ticker)
-	}
 	if err := r.assertMaths(); err != nil {
 		return fmt.Errorf("cannot assert the maths for the record (record = %s): %v", r.String(), err)
 	}

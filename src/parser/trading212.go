@@ -12,11 +12,17 @@ import (
 const t212BrokerName = "T212"
 
 type trading212Parser struct {
-	isCGTExempt bool
+	act record.Account
 }
 
 func NewT212(cgtExempt bool) *trading212Parser {
-	return &trading212Parser{isCGTExempt: cgtExempt}
+	return &trading212Parser{
+		act: record.Account{
+			Name:      t212BrokerName,
+			Currency:  record.GBP,
+			CGTExempt: cgtExempt,
+		},
+	}
 }
 
 func (p *trading212Parser) ValidateHeader(contents []string) error {
@@ -38,7 +44,7 @@ func (p *trading212Parser) ValidateHeader(contents []string) error {
 }
 
 func (p *trading212Parser) ToRecord(contents []string) ([]*record.Record, error) {
-	r := &record.Record{Broker: record.Account{Name: t212BrokerName, CGTExempt: p.isCGTExempt}}
+	r := &record.Record{Broker: p.act}
 	var err error
 	// fill up timestamp
 	r.Timestamp, err = time.Parse(timeFmt, contents[1])

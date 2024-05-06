@@ -75,26 +75,29 @@ type Holding struct {
 	debug     string
 }
 
-func copyAndSortRecords(ticker string, records_orig []*record.Record) ([]*record.Record, error) {
-	var records []*record.Record
-	for _, r := range records_orig {
-		if r.Ticker != ticker {
-			return nil, fmt.Errorf("invalid ticker in record")
-		}
-		r_cpy := *r
-		r_cpy.Timestamp = r_cpy.Timestamp.Truncate(24 * time.Hour)
-		records = append(records, &r_cpy)
-	}
-
-	sort.Slice(records, func(i, j int) bool {
-		x := records[i].Timestamp
-		y := records[j].Timestamp
-		// if same date then put split transaction first and then sell
-		if x.Year() == y.Year() && x.YearDay() == y.YearDay() {
+func sortRecords(records []*record.Record, truncate time.Duration) {
+	sort.SliceStable(records, func(i, j int) bool {
+		x := records[i].Timestamp.Truncate(truncate)
+		y := records[j].Timestamp.Truncate(truncate)
+		// if same then put split transaction first and then sell
+		if x.Equal(y) {
 			return record.TransactionOrder[records[i].Action] < record.TransactionOrder[records[j].Action]
 		}
 		return x.Before(y)
 	})
+}
+
+func copyAndSortRecords(ticker string, recordsOrig []*record.Record) ([]*record.Record, error) {
+	var records []*record.Record
+	for _, r := range recordsOrig {
+		if r.Ticker != ticker {
+			return nil, fmt.Errorf("invalid ticker in record")
+		}
+		rCopy := *r
+		rCopy.Timestamp = rCopy.Timestamp.Truncate(24 * time.Hour)
+		records = append(records, &rCopy)
+	}
+	sortRecords(records, 24*time.Hour)
 	return records, nil
 }
 
@@ -171,8 +174,8 @@ func handleSell(poolActive *pool, records []*record.Record, presentIdx int, debu
 	return nil
 }
 
-func calculateInternal(ticker string, records_orig []*record.Record) (*Holding, error) {
-	records, err := copyAndSortRecords(ticker, records_orig)
+func calculateInternal(ticker string, recordsOrig []*record.Record) (*Holding, error) {
+	records, err := copyAndSortRecords(ticker, recordsOrig)
 	if err != nil {
 		return nil, fmt.Errorf("cannot copy and sort records based on timestamp: %v", err)
 	}
@@ -196,8 +199,8 @@ func calculateInternal(ticker string, records_orig []*record.Record) (*Holding, 
 			}
 		case record.Rename:
 			return nil, fmt.Errorf("rename record should not be present here")
-		case record.Transfer:
-			log.Warningf("transfer record passed to holidngs which groups by ticker and not account, this record has no implications: %v", r)
+		case record.TransferIn, record.TransferOut, record.CashIn, record.CashOut, record.Dividend:
+			log.Warningf("transfer/cash/dividend record passed to holidngs which groups by ticker and not account, this record has no implications: %v", r)
 			continue
 		case record.Buy:
 			// if this buy has been exhausted then just continue
@@ -214,7 +217,7 @@ func calculateInternal(ticker string, records_orig []*record.Record) (*Holding, 
 	}
 	return &Holding{
 		ticker:    ticker,
-		currency:  records_orig[0].Currency,
+		currency:  recordsOrig[0].Currency,
 		taxable:   taxable,
 		cgtExempt: cgtExempt,
 		debug:     debug.String(),
@@ -222,13 +225,9 @@ func calculateInternal(ticker string, records_orig []*record.Record) (*Holding, 
 }
 
 // Calculate takes in the records and calculates the present holding situation
-func Calculate(records []*record.Record, fxIsAsset bool) (map[string]*Holding, error) {
+func Calculate(records []*record.Record) (map[string]*Holding, error) {
 	var byTicker map[string][]*record.Record = make(map[string][]*record.Record)
 	for _, r := range records {
-		// ignore cash positions if fx is not considered an asset
-		if r.Broker == record.CashBroker && !fxIsAsset {
-			continue
-		}
 		byTicker[r.Ticker] = append(byTicker[r.Ticker], r)
 	}
 	var keys = maps.Keys(byTicker)

@@ -50,8 +50,8 @@ func ToActivities(recordsOrig []*record.Record) (*Activities, error) {
 			return nil, fmt.Errorf("Cannot get metadata of the ticker %s: %v", r.Ticker, err)
 		}
 		switch r.Action {
-		case record.Unknown, record.Rename:
-			log.Errorf("Invalid type record: %v, skipping", r)
+		case record.Unknown, record.Rename, record.Dividend, record.CashIn, record.CashOut:
+			log.Warningf("Invalid type record: %v, skipping", r)
 		case record.Buy, record.Sell:
 			a, err := toActivity(r, symbol)
 			if err != nil {
@@ -65,7 +65,9 @@ func ToActivities(recordsOrig []*record.Record) (*Activities, error) {
 			if err := handleSplit(activities[symbol.YahooTicker], r.Description); err != nil {
 				return nil, fmt.Errorf("cannot handle split: %v", r)
 			}
-		case record.Transfer:
+		case record.TransferIn:
+			log.Infof("transfer in record %v is handled by it's transfer out", r)
+		case record.TransferOut:
 			acts, err := handleTransfer(r, symbol)
 			if err != nil {
 				return nil, fmt.Errorf("cannot handle transfer transaction: %v", err)
@@ -116,8 +118,8 @@ func handleTransfer(r *record.Record, meta *db.Symbol) ([]*Activity, error) {
 }
 
 func toActivity(r *record.Record, meta *db.Symbol) (*Activity, error) {
-	if r.Broker == record.CashBroker || r.Broker == record.GlobalBroker {
-		log.Warningf("Ignoring transaction for special brokers: %v", r)
+	if meta.AssetType == db.ForexType {
+		log.Warningf("Ignoring transaction for forex: %v", r)
 		return nil, nil
 	}
 	a := &Activity{
