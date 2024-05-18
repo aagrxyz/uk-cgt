@@ -14,7 +14,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// const symbolsFilename = "outputs/symbols_db.gob"
 const symbolJSONFilename = "outputs/symbols_db.json"
 
 const ForexType = "FOREX"

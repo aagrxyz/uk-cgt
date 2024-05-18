@@ -2,7 +2,6 @@ package holdings
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"aagr.xyz/trades/src/record"
@@ -14,33 +13,7 @@ type Account struct {
 	positions map[string]*position
 }
 
-func (a *Account) Render() string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Account = %v\n\n", a.Account))
-	for t, p := range a.positions {
-		if p.quantity <= 0 {
-			continue
-		}
-		sb.WriteString(fmt.Sprintf("\tTicker = %s, Quantity = %f, AverageCost = %f\n", t, p.quantity, p.averageCost()))
-	}
-	sb.WriteString("\n\n")
-	return sb.String()
-}
-
-type AccountStats struct {
-	accounts []*Account
-}
-
-func (a *AccountStats) Render() string {
-	var sb strings.Builder
-	sb.WriteString("\n\nAccount Holdings info\n\n")
-	for _, act := range a.accounts {
-		sb.WriteString(act.Render())
-	}
-	return sb.String()
-}
-
-func GetAccountStats(records []*record.Record) (*AccountStats, error) {
+func ByAccount(records []*record.Record) (map[record.Account]*Account, error) {
 	var byAccount = make(map[record.Account][]*record.Record)
 	var globals []*record.Record
 	for _, r := range records {
@@ -57,15 +30,15 @@ func GetAccountStats(records []*record.Record) (*AccountStats, error) {
 			byAccount[k] = append(byAccount[k], &gCopy)
 		}
 	}
-	var res []*Account
+	var res = make(map[record.Account]*Account)
 	for k, vals := range byAccount {
 		a, err := accountInternal(k, vals)
 		if err != nil {
 			return nil, fmt.Errorf("cannot get account stats for %v: %v", k, err)
 		}
-		res = append(res, a)
+		res[k] = a
 	}
-	return &AccountStats{accounts: res}, nil
+	return res, nil
 }
 
 // this runs on only one account

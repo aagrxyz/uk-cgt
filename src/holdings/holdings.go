@@ -224,8 +224,8 @@ func calculateInternal(ticker string, recordsOrig []*record.Record) (*Holding, e
 	}, nil
 }
 
-// Calculate takes in the records and calculates the present holding situation
-func Calculate(records []*record.Record) (map[string]*Holding, error) {
+// ByTicker takes in the records and calculates the present holding situation based on a ticker
+func ByTicker(records []*record.Record) (map[string]*Holding, error) {
 	var byTicker map[string][]*record.Record = make(map[string][]*record.Record)
 	for _, r := range records {
 		byTicker[r.Ticker] = append(byTicker[r.Ticker], r)

@@ -11,6 +11,7 @@ import (
 	"aagr.xyz/trades/src/yahoo"
 	"github.com/go-resty/resty/v2"
 	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/jellydator/ttlcache/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
@@ -63,7 +64,14 @@ func presentPrice(ticker string, yahooClient *resty.Client) float64 {
 	return quote.Price()
 }
 
-var cachedForex = make(map[record.Currency]float64)
+var cachedForex *ttlcache.Cache[record.Currency, float64]
+
+func init() {
+	cachedForex = ttlcache.New[record.Currency, float64](
+		ttlcache.WithTTL[record.Currency, float64](10 * time.Minute),
+	)
+	go cachedForex.Start()
+}
 
 func presentForex(currency record.Currency, yahooClient *resty.Client) float64 {
 	switch currency {
@@ -72,8 +80,8 @@ func presentForex(currency record.Currency, yahooClient *resty.Client) float64 {
 	case record.GBX:
 		return 0.01
 	}
-	if val, ok := cachedForex[currency]; ok {
-		return val
+	if cachedForex.Has(currency) {
+		return cachedForex.Get(currency).Value()
 	}
 	symbol := fmt.Sprintf("%sGBP=X", currency)
 	quote, err := yahoo.GetQuote(yahooClient, symbol)
@@ -82,8 +90,87 @@ func presentForex(currency record.Currency, yahooClient *resty.Client) float64 {
 		return 0.0
 	}
 	price := quote.Price()
-	cachedForex[currency] = price
+	cachedForex.Set(currency, price, ttlcache.DefaultTTL)
 	return price
+}
+
+func assetType(ticker string) string {
+	var res string
+	meta, err := db.TickerMeta(ticker)
+	if err != nil {
+		log.Errorf("Cannot get metadata about ticker, so setting type as N/A")
+		return "N/A"
+	}
+	res = meta.AssetType
+	if res == "ETF" && meta.ETFType != "" {
+		res = meta.ETFType
+	}
+	if ticker == "GOOGL" || ticker == "GOOG" {
+		res = "GOOG"
+	}
+	return res
+}
+
+func accountTable(act *Account, yahooClient *resty.Client) table.Writer {
+	t := table.NewWriter()
+	t.SetTitle(fmt.Sprintf("Account %s (currency=%s) Holdings", act.Name, act.Currency))
+	t.SetStyle(table.StyleLight)
+	t.AppendHeader(table.Row{
+		"Account", "Ticker", "Asset Type", "Currency", "Quantity",
+		"Avg Price", "Present Price", "Present Value",
+		"P&L", "Present Value (GBP)", "P&L (GBP)",
+	})
+	t.SetColumnConfigs([]table.ColumnConfig{
+		{Number: 5, Transformer: tf},
+		{Number: 6, Transformer: tf},
+		{Number: 7, Transformer: tf},
+		{Number: 8, Transformer: tf},
+		{Number: 9, Transformer: tf},
+		{Number: 10, Transformer: tf, TransformerFooter: tf},
+		{Number: 11, Transformer: tf, TransformerFooter: tf},
+	})
+	t.SortBy([]table.SortBy{{Number: 1}})
+	var totalValueGBP, totalGainGBP float64
+	for ticker, pos := range act.positions {
+		if math.Abs(pos.quantity-0.0) <= epsilon {
+			continue
+		}
+		price := presentPrice(ticker, yahooClient)
+		meta, err := db.TickerMeta(ticker)
+		if err != nil {
+			log.Errorf("Cannot get metadata about ticker %s: %v", ticker, err)
+		}
+		forex := presentForex(record.Currency(meta.Currency), yahooClient)
+		assetType := assetType(ticker)
+		presentValue := pos.quantity * price
+		gain := presentValue - pos.totalCost
+		t.AppendRow(table.Row{
+			act.Account.Name,
+			ticker,
+			assetType,
+			meta.Currency,
+			pos.quantity,
+			pos.averageCost(),
+			price, presentValue,
+			gain,
+			presentValue * forex,
+			gain * forex,
+		})
+		totalValueGBP += (presentValue * forex)
+		totalGainGBP += (gain * forex)
+	}
+	t.AppendFooter(table.Row{
+		act.Account.Name, "", "", "", "", "", "", "", "", totalValueGBP, totalGainGBP,
+	})
+	return t
+}
+
+func AccountStats(byAccount map[record.Account]*Account, yahooClient *resty.Client) map[record.Account]table.Writer {
+	var res = make(map[record.Account]table.Writer)
+	for act, pos := range byAccount {
+		res[act] = accountTable(pos, yahooClient)
+	}
+	return res
 }
 
 // Portfolio prints a report for the open positions
@@ -117,19 +204,8 @@ func Portfolio(holdings map[string]*Holding, yahooClient *resty.Client) table.Wr
 	for ticker, h := range holdings {
 		price := presentPrice(ticker, yahooClient)
 		forex := presentForex(h.currency, yahooClient)
-		var assetType string
-		if meta, err := db.TickerMeta(ticker); err != nil {
-			log.Errorf("Cannot get metadata about ticker, so setting type as N/A")
-			assetType = "N/A"
-		} else {
-			assetType = meta.AssetType
-			if assetType == "ETF" && meta.ETFType != "" {
-				assetType = meta.ETFType
-			}
-			if ticker == "GOOGL" || ticker == "GOOG" {
-				assetType = "GOOG"
-			}
-		}
+		assetType := assetType(ticker)
+
 		if math.Abs(h.taxable.gbp.quantity-0.0) > epsilon {
 			t.AppendRow(table.Row{
 				ticker,
@@ -166,7 +242,7 @@ func Portfolio(holdings map[string]*Holding, yahooClient *resty.Client) table.Wr
 }
 
 // CGT returns a string containing report for CGT along with a debug string
-func CGT(holdings map[string]*Holding) (string, string) {
+func CGT(holdings map[string]*Holding) (map[string]table.Writer, string) {
 	var tables map[string]table.Writer = make(map[string]table.Writer)
 	var totalStats map[string]*stats = make(map[string]*stats)
 	years := maps.Keys(taxYears)
@@ -197,16 +273,12 @@ func CGT(holdings map[string]*Holding) (string, string) {
 			totalStats[ty].realizedGain += st.realizedGain
 		}
 	}
-	var out strings.Builder
-	out.WriteString("\n\nCGT Calculation Report\n\n")
 	for _, ty := range years {
 		tables[ty].AppendFooter(table.Row{
 			"TOTAL", totalStats[ty].disposed, totalStats[ty].realizedGain,
 		})
-		out.WriteString(tables[ty].Render())
-		out.WriteString("\n\n")
 	}
-	return out.String(), debugCGT(holdings)
+	return tables, debugCGT(holdings)
 }
 
 func debugCGT(holdings map[string]*Holding) string {
