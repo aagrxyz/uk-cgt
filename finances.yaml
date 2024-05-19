@@ -17,6 +17,7 @@ spec:
       containers:
         - name: finances
           args:
+            - "/finances/finances"
             - "--port=7777"
             - "--config_file=/var/finances/configs/config.textproto"
             - "--root_dir=/var/finances/data/"
