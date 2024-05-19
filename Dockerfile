@@ -1,6 +1,6 @@
 FROM golang:alpine
 
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl tzdata
 
 WORKDIR /finances/src/
 COPY ./src ./
