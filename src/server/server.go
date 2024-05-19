@@ -13,6 +13,7 @@ import (
 
 	"aagr.xyz/trades/holdings"
 	"aagr.xyz/trades/record"
+	"aagr.xyz/trades/statements"
 	"golang.org/x/exp/maps"
 
 	"github.com/go-resty/resty/v2"
@@ -66,12 +67,15 @@ func (s *Server) Run(port int, filename string) error {
 		}
 	}
 	http.HandleFunc("/", s.healthz)
+
 	http.HandleFunc("/healthz", s.healthz)
 	http.HandleFunc("/portfolio", s.basicAuth(s.portfolioHandler))
-	http.HandleFunc("/csv/portfolio", s.basicAuth(s.portfolioCSVHandler))
 	http.HandleFunc("/accounts", s.basicAuth(s.accountHandler))
-	http.HandleFunc("/csv/accounts", s.basicAuth(s.accountsCSVHandler))
 	http.HandleFunc("/cgt", s.basicAuth(s.cgtHandler))
+	http.HandleFunc("/csv/portfolio", s.basicAuth(s.portfolioCSVHandler))
+	http.HandleFunc("/csv/accounts", s.basicAuth(s.accountsCSVHandler))
+	http.HandleFunc("/csv/transactions", s.basicAuth(s.transactionsHandler))
+	http.HandleFunc("/quit/quit/quit", s.basicAuth(s.quit))
 	if port <= 0 {
 		return nil
 	}
@@ -90,6 +94,10 @@ func (s *Server) Update() error {
 		return fmt.Errorf("Cannot compute holdings by ticker: %v", err)
 	}
 	return nil
+}
+
+func (s *Server) quit(w http.ResponseWriter, r *http.Request) {
+	os.Exit(-1)
 }
 
 func (s *Server) basicAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -134,6 +142,15 @@ func (s *Server) portfolioHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) portfolioCSVHandler(w http.ResponseWriter, r *http.Request) {
 	portfolio := holdings.Portfolio(s.byTicker, s.yahooClient)
 	fmt.Fprint(w, portfolio.RenderCSV())
+}
+
+func (s *Server) transactionsHandler(w http.ResponseWriter, r *http.Request) {
+	res, err := statements.RecordsToCSV(s.records)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	fmt.Fprint(w, res)
 }
 
 func (s *Server) cgtHandler(w http.ResponseWriter, r *http.Request) {

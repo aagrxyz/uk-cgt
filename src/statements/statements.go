@@ -114,7 +114,7 @@ func Records(statements []*Statement, rootDir string) ([]*record.Record, error) 
 }
 
 func FlushRecords(records []*record.Record, outputFile string) error {
-	transactions, err := recordsToCSV(records)
+	transactions, err := RecordsToCSV(records)
 	if err != nil {
 		return fmt.Errorf("cannot convert records to csv: %v", err)
 	}
@@ -127,7 +127,7 @@ func FlushRecords(records []*record.Record, outputFile string) error {
 	return nil
 }
 
-func recordsToCSV(records []*record.Record) (string, error) {
+func RecordsToCSV(records []*record.Record) (string, error) {
 	sb := new(bytes.Buffer)
 	w := csv.NewWriter(sb)
 	if err := w.Write(records[0].Header()); err != nil {
