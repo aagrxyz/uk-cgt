@@ -24,11 +24,17 @@ const (
 )
 
 var (
-	rootDir          = flag.String("root_dir", "", "The root directory for outputs")
-	transactionsFile = flag.String("transactions_file", "", "The file for merged transactions")
-	configFile       = flag.String("config_file", "", "The file for parsing config textproto")
-	port             = flag.Int("port", 0, "The port to run the web server on")
+	rootDir            = flag.String("root_dir", "", "The root directory for outputs")
+	transactionsFile   = flag.String("transactions_file", "", "The file for merged transactions")
+	configFile         = flag.String("config_file", "", "The file for parsing config textproto")
+	port               = flag.Int("port", 0, "The port to run the web server on")
+	username, password string
 )
+
+func init() {
+	username = Env("AUTH_USERNAME", "")
+	password = Env("AUTH_PASSWORD", "")
+}
 
 func main() {
 	var err error
@@ -74,7 +80,7 @@ func main() {
 		log.Fatalf("cannot flush merged transactions to disk: %v", err)
 	}
 
-	srv := server.New(records, yahooClient)
+	srv := server.New(records, yahooClient, server.NewAuth(username, password))
 	if err := srv.Run(*port, path.Join(*rootDir, reportFilename)); err != nil {
 		log.Fatalf("cannot run server: %v", err)
 	}

@@ -19,3 +19,11 @@ func init() {
 	// Output to stdout instead of the default stderr
 	log.SetOutput(os.Stdout)
 }
+
+func Env(key, fallback string) string {
+	value := os.Getenv(key)
+	if len(value) == 0 {
+		return fallback
+	}
+	return value
+}

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"fmt"
 	"net/http"
 	"os"
@@ -20,16 +22,29 @@ const (
 	timeFmt = "2006-01-02 15:04:05"
 )
 
+type Auth struct {
+	username, password string
+}
+
+func NewAuth(u, p string) *Auth {
+	return &Auth{
+		username: u,
+		password: p,
+	}
+}
+
 type Server struct {
+	auth        *Auth
 	yahooClient *resty.Client
 	records     []*record.Record
 	byAccount   map[record.Account]*holdings.Account
 	byTicker    map[string]*holdings.Holding
 }
 
-func New(records []*record.Record, yc *resty.Client) *Server {
+func New(records []*record.Record, yc *resty.Client, auth *Auth) *Server {
 	return &Server{
 		yahooClient: yc,
+		auth:        auth,
 		records:     records,
 		byAccount:   make(map[record.Account]*holdings.Account),
 		byTicker:    make(map[string]*holdings.Holding),
@@ -51,9 +66,11 @@ func (s *Server) Run(port int, filename string) error {
 	}
 	http.HandleFunc("/", s.healthz)
 	http.HandleFunc("/healthz", s.healthz)
-	http.HandleFunc("/portfolio", s.portfolioHandler)
-	http.HandleFunc("/accounts", s.accountHandler)
-	http.HandleFunc("/cgt", s.cgtHandler)
+	http.HandleFunc("/portfolio", s.basicAuth(s.portfolioHandler))
+	http.HandleFunc("/csv/portfolio", s.basicAuth(s.portfolioCSVHandler))
+	http.HandleFunc("/accounts", s.basicAuth(s.accountHandler))
+	http.HandleFunc("/csv/accounts", s.basicAuth(s.accountsCSVHandler))
+	http.HandleFunc("/cgt", s.basicAuth(s.cgtHandler))
 	if port <= 0 {
 		return nil
 	}
@@ -74,6 +91,32 @@ func (s *Server) Update() error {
 	return nil
 }
 
+func (s *Server) basicAuth(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.auth.username == "" || s.auth.password == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		username, password, ok := r.BasicAuth()
+		if ok {
+			usernameHash := sha256.Sum256([]byte(username))
+			passwordHash := sha256.Sum256([]byte(password))
+			expectedUsernameHash := sha256.Sum256([]byte(s.auth.username))
+			expectedPasswordHash := sha256.Sum256([]byte(s.auth.password))
+
+			usernameMatch := (subtle.ConstantTimeCompare(usernameHash[:], expectedUsernameHash[:]) == 1)
+			passwordMatch := (subtle.ConstantTimeCompare(passwordHash[:], expectedPasswordHash[:]) == 1)
+
+			if usernameMatch && passwordMatch {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	})
+}
+
 func (s *Server) portfolioHandler(w http.ResponseWriter, r *http.Request) {
 	portfolio := holdings.Portfolio(s.byTicker, s.yahooClient)
 	fmt.Fprintf(w, `
@@ -86,6 +129,10 @@ func (s *Server) portfolioHandler(w http.ResponseWriter, r *http.Request) {
 	%s
 	</body>
 	</html>`, time.Now().Format(timeFmt), portfolio.RenderHTML())
+}
+func (s *Server) portfolioCSVHandler(w http.ResponseWriter, r *http.Request) {
+	portfolio := holdings.Portfolio(s.byTicker, s.yahooClient)
+	fmt.Fprint(w, portfolio.RenderCSV())
 }
 
 func (s *Server) cgtHandler(w http.ResponseWriter, r *http.Request) {
@@ -120,6 +167,20 @@ func (s *Server) accountHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "<br><br>")
 	}
 	fmt.Fprint(w, `</body></html>`)
+}
+func (s *Server) accountsCSVHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "Account Stats: %s", time.Now().Format(timeFmt))
+	accounts := holdings.AccountStats(s.byAccount, s.yahooClient)
+	i := 0
+	for _, act := range accounts {
+		act.SetTitle("")
+		act.ResetFooters()
+		if i > 0 {
+			act.ResetHeaders()
+		}
+		fmt.Fprintf(w, "\n%s", act.RenderCSV())
+		i++
+	}
 }
 
 func (s *Server) writeReport(filename string) error {
