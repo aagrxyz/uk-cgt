@@ -55,6 +55,11 @@ func AddForex(ts time.Time, currency string, value float64) {
 
 // GetForex returns the conversion rate to GBP.
 func GetForex(ts time.Time, currency string) float64 {
+	if currency == "GBP" {
+		return 1.0
+	} else if currency == "GBX" {
+		return 0.01
+	}
 	date := ts.Truncate(24 * time.Hour)
 	if _, ok := forex[date]; !ok {
 		forex[date] = make(map[string]float64)

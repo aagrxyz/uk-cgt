@@ -12,12 +12,13 @@ message Statement {
     DefaultParser default_parser = 1;
     T212Parser t212_parser = 2;
     IBKRParser ibkr_parser = 3;
+    IBKRDividendParser ibkr_dividend_parser = 8;
     IGParser ig_parser = 4;
     IGDividendParser ig_dividend_parser = 5;
     MSVestParser ms_vest_parser = 6;
     MSWithdrawlParser ms_withdrawl_parser = 7;
   }
-  reserved 8 to 99; // for future parsers
+  reserved 9 to 99; // for future parsers
   string directory = 100;
   repeated string filenames = 101;
 }
@@ -33,6 +34,10 @@ message T212Parser {
 }
 
 message IBKRParser {
+  Account account = 1;
+}
+
+message IBKRDividendParser {
   Account account = 1;
 }
 

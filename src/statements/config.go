@@ -64,6 +64,12 @@ func parserFromProto(cfg *pb.Statement) (parser.Parser, error) {
 			return nil, fmt.Errorf("cannot parse account: %v", err)
 		}
 		return parser.NewT212(act), nil
+	case *pb.Statement_IbkrDividendParser:
+		act, err := record.AccountFromProto(pCfg.IbkrDividendParser.GetAccount())
+		if err != nil {
+			return nil, fmt.Errorf("cannot parse account: %v", err)
+		}
+		return parser.NewIBKRDividend(act), nil
 	}
 	return nil, fmt.Errorf("invalid type")
 }

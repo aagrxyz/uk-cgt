@@ -52,5 +52,7 @@ func (p *igDividendParser) ToRecord(contents []string) ([]*record.Record, error)
 		return nil, fmt.Errorf("cannot calcuate commission: %v", err)
 	}
 	r.PricePerShare = 1.0
+	r.ExchangeRate = 1.0
+	r.Total = r.ShareCount
 	return []*record.Record{r}, nil
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"aagr.xyz/trades/db"
 	"aagr.xyz/trades/record"
 )
 
@@ -169,5 +170,8 @@ func (p *defaultParser) divdendRecord(contents []string) ([]*record.Record, erro
 	}
 	// fillup currency
 	r.Currency = record.NewCurrency(contents[9])
+	r.PricePerShare = 1.0
+	r.ExchangeRate = db.GetForex(r.Timestamp, string(r.Currency))
+	r.Total = r.ShareCount * r.PricePerShare * r.ExchangeRate
 	return []*record.Record{r}, nil
 }
