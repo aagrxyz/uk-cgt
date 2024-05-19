@@ -7,10 +7,12 @@ import (
 
 	"aagr.xyz/trades/src/db"
 	"aagr.xyz/trades/src/parser"
+	"aagr.xyz/trades/src/proto/statementspb"
 	"aagr.xyz/trades/src/server"
 	"aagr.xyz/trades/src/statements"
 	"aagr.xyz/trades/src/yahoo"
 	"github.com/go-resty/resty/v2"
+	"google.golang.org/protobuf/encoding/prototext"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -24,8 +26,8 @@ const (
 var (
 	rootDir          = flag.String("root_dir", "", "The root directory for outputs")
 	transactionsFile = flag.String("transactions_file", "", "The file for merged transactions")
+	configFile       = flag.String("config_file", "", "The file for parsing config textproto")
 	port             = flag.Int("port", 0, "The port to run the web server on")
-	sts              []*statements.Statement
 )
 
 func main() {
@@ -41,6 +43,23 @@ func main() {
 	yahooClient := yahoo.New(resty.New(), resty.New())
 	yahoo.RefreshSession(yahooClient, resty.New())
 	db.InitDB(*rootDir, yahooClient)
+	var sts []*statements.Statement
+
+	if *configFile != "" {
+		b, err := os.ReadFile(*configFile)
+		if err != nil {
+			log.Fatalf("cannot read the config file: %v", err)
+		}
+		var cfg = &statementspb.Statements{}
+		if err := prototext.Unmarshal(b, cfg); err != nil {
+			log.Fatalf("cannot unmarshal statements config file: %v", err)
+		}
+		parsed, err := statements.FromProtoConfig(cfg)
+		if err != nil {
+			log.Fatalf("cannot parse the statements config: %v", err)
+		}
+		sts = append(sts, parsed...)
+	}
 
 	if *transactionsFile != "" {
 		sts = append(sts, statements.New(parser.NewDefault(), "", []string{*transactionsFile}))

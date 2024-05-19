@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"aagr.xyz/trades/src/db"
+	"aagr.xyz/trades/src/proto/statementspb"
 )
 
 const timeFmt = "2006-01-02 15:04:05"
@@ -177,6 +178,21 @@ type Account struct {
 	// If CGTExempt is true, then transactions in this account are exempt from CGT calculation,
 	// but you can still see the profit/loss for it.
 	CGTExempt bool
+}
+
+func AccountFromProto(act *statementspb.Account) (Account, error) {
+	if act.GetName() == "" {
+		return Account{}, fmt.Errorf("empty name")
+	}
+	curr := NewCurrency(act.GetCurrency())
+	if curr == "" {
+		return Account{}, fmt.Errorf("invalid currency: %q", act.GetCurrency())
+	}
+	return Account{
+		Name:      act.GetName(),
+		Currency:  curr,
+		CGTExempt: act.GetCgtExempt(),
+	}, nil
 }
 
 // Record stores each transaction

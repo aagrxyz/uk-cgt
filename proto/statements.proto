@@ -1,0 +1,57 @@
+syntax = "proto3";
+package aagrxyz.trades;
+
+option go_package = "proto/statementspb";
+
+message Statements {
+  repeated Statement statements = 1;
+}
+
+message Statement {
+  oneof parser_oneof {
+    DefaultParser default_parser = 1;
+    T212Parser t212_parser = 2;
+    IBKRParser ibkr_parser = 3;
+    IGParser ig_parser = 4;
+    IGDividendParser ig_dividend_parser = 5;
+    MSVestParser ms_vest_parser = 6;
+    MSWithdrawlParser ms_withdrawl_parser = 7;
+  }
+  reserved 8 to 99; // for future parsers
+  string directory = 100;
+  repeated string filenames = 101;
+}
+
+message Account {
+  string name = 1;
+  string currency = 2;
+  bool cgt_exempt = 3;
+}
+
+message T212Parser {
+  Account account = 1;
+}
+
+message IBKRParser {
+  Account account = 1;
+}
+
+message IGParser {
+  Account account = 1;
+}
+
+message IGDividendParser {
+  Account account = 1;
+}
+
+message MSVestParser {
+  Account account = 1;
+}
+
+
+message MSWithdrawlParser {
+  Account account = 1;
+  Account withdraw_account = 2;
+}
+
+message DefaultParser {}

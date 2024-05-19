@@ -9,20 +9,12 @@ import (
 	"aagr.xyz/trades/src/record"
 )
 
-const t212BrokerName = "T212"
-
 type trading212Parser struct {
 	act record.Account
 }
 
-func NewT212(cgtExempt bool) *trading212Parser {
-	return &trading212Parser{
-		act: record.Account{
-			Name:      t212BrokerName,
-			Currency:  record.GBP,
-			CGTExempt: cgtExempt,
-		},
-	}
+func NewT212(act record.Account) *trading212Parser {
+	return &trading212Parser{act: act}
 }
 
 func (p *trading212Parser) ValidateHeader(contents []string) error {
@@ -99,7 +91,7 @@ func (p *trading212Parser) ToRecord(contents []string) ([]*record.Record, error)
 	return []*record.Record{r}, nil
 }
 
-func (p *trading212Parser) calculateCommission(r *record.Record, contents []string) (float64, error) {
+func (p *trading212Parser) calculateCommission(_ *record.Record, contents []string) (float64, error) {
 	// calculate commission and stamp duty fees for normal trades
 	var res float64
 	for _, idx := range []int{11, 12, 13} {

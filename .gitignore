@@ -3,5 +3,5 @@ transactions/*
 .DS_Store
 .ignore/*
 trades
-aagr_config.go
+aagr_config.textproto
 .vscode

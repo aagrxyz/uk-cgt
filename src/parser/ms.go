@@ -12,16 +12,15 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var morganStanleyBroker = record.Account{
-	Name:      "MS",
-	Currency:  record.USD,
-	CGTExempt: false,
+type msVestParser struct {
+	broker record.Account
 }
 
-type msVestParser struct{}
-
-func NewMSVest() *msVestParser {
-	return &msVestParser{}
+func NewMSVest(act record.Account) (*msVestParser, error) {
+	if act.Currency != record.USD {
+		return nil, fmt.Errorf("MS Vest parser works with USD currency, got %s", act.Currency)
+	}
+	return &msVestParser{broker: act}, nil
 }
 
 func (p *msVestParser) ValidateHeader(contents []string) error {
@@ -37,7 +36,7 @@ func (p *msVestParser) ValidateHeader(contents []string) error {
 
 func (p *msVestParser) ToRecord(contents []string) ([]*record.Record, error) {
 	r := &record.Record{
-		Broker:     morganStanleyBroker,
+		Broker:     p.broker,
 		Action:     record.NewTransactionType("buy"),
 		Currency:   record.USD,
 		Ticker:     "GOOG",
@@ -68,7 +67,7 @@ func (p *msVestParser) ToRecord(contents []string) ([]*record.Record, error) {
 func (p *msVestParser) cashInRecord(vest *record.Record) *record.Record {
 	cashIn := &record.Record{
 		Timestamp:  vest.Timestamp,
-		Broker:     morganStanleyBroker,
+		Broker:     p.broker,
 		Action:     record.CashIn,
 		Ticker:     string(record.USD),
 		ShareCount: vest.Total / vest.ExchangeRate,
@@ -78,13 +77,18 @@ func (p *msVestParser) cashInRecord(vest *record.Record) *record.Record {
 }
 
 type msWithdrawlParser struct {
+	broker          record.Account
 	transferAccount record.Account
 }
 
-func NewMSWithdraw(transferAccount record.Account) *msWithdrawlParser {
-	return &msWithdrawlParser{
-		transferAccount: transferAccount,
+func NewMSWithdraw(act, transferAccount record.Account) (*msWithdrawlParser, error) {
+	if act.Currency != record.USD {
+		return nil, fmt.Errorf("MS Withdrawl parser assumes account currency USD, got %s", act.Currency)
 	}
+	return &msWithdrawlParser{
+		broker:          act,
+		transferAccount: transferAccount,
+	}, nil
 }
 
 func (p *msWithdrawlParser) ValidateHeader(contents []string) error {
@@ -101,7 +105,7 @@ func (p *msWithdrawlParser) ValidateHeader(contents []string) error {
 
 func (p *msWithdrawlParser) transferRecord(contents []string) ([]*record.Record, error) {
 	out := &record.Record{
-		Broker:   morganStanleyBroker,
+		Broker:   p.broker,
 		Action:   record.TransferOut,
 		Ticker:   "GOOG",
 		Currency: record.USD,
@@ -140,13 +144,13 @@ func (p *msWithdrawlParser) gsuRecord(contents []string) ([]*record.Record, erro
 		return nil, nil
 	}
 	r := &record.Record{
-		Broker:   morganStanleyBroker,
+		Broker:   p.broker,
 		Action:   record.NewTransactionType("sell"),
 		Ticker:   "GOOG",
 		Currency: record.USD,
 	}
 	cashR := &record.Record{
-		Broker:     morganStanleyBroker,
+		Broker:     p.broker,
 		Action:     record.NewTransactionType("buy"),
 		Ticker:     string(record.USD),
 		Name:       string(record.USD),
@@ -196,7 +200,7 @@ func (p *msWithdrawlParser) cashRecord(contents []string) ([]*record.Record, err
 		return nil, fmt.Errorf("invalid type, expected Cash,Sale : %v", contents)
 	}
 	cashOut := &record.Record{
-		Broker:   morganStanleyBroker,
+		Broker:   p.broker,
 		Action:   record.CashOut,
 		Ticker:   string(record.USD),
 		Currency: record.USD,

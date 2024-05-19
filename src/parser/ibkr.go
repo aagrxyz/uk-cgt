@@ -12,18 +12,15 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const ibkrBrokerName = "IBKR"
-
 type ibkrParser struct {
 	broker record.Account
 }
 
-func NewIBKR(cgtExempt bool) *ibkrParser {
-	return &ibkrParser{broker: record.Account{
-		Name:      ibkrBrokerName,
-		Currency:  record.MULTIPLE,
-		CGTExempt: cgtExempt,
-	}}
+func NewIBKR(act record.Account) (*ibkrParser, error) {
+	if act.Currency != record.MULTIPLE {
+		return nil, fmt.Errorf("IBKR Parser works with multiple currency support, got %s", act.Currency)
+	}
+	return &ibkrParser{broker: act}, nil
 }
 
 func (p *ibkrParser) ValidateHeader(contents []string) error {
