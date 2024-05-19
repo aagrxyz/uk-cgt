@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"aagr.xyz/trades/src/db"
-	"aagr.xyz/trades/src/record"
-	"aagr.xyz/trades/src/yahoo"
+	"aagr.xyz/trades/db"
+	"aagr.xyz/trades/record"
+	"aagr.xyz/trades/yahoo"
 	"github.com/go-resty/resty/v2"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jellydator/ttlcache/v3"

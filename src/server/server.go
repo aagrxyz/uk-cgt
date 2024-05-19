@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path"
 	"sort"
 	"strings"
 	"time"
 
-	"aagr.xyz/trades/src/holdings"
-	"aagr.xyz/trades/src/record"
+	"aagr.xyz/trades/holdings"
+	"aagr.xyz/trades/record"
 	"golang.org/x/exp/maps"
 
 	"github.com/go-resty/resty/v2"
@@ -184,6 +185,9 @@ func (s *Server) accountsCSVHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) writeReport(filename string) error {
+	if err := os.MkdirAll(path.Dir(filename), 0755); err != nil {
+		return fmt.Errorf("cannot create directories: %v", err)
+	}
 	portfolio := holdings.Portfolio(s.byTicker, s.yahooClient)
 	cgt, debug := holdings.CGT(s.byTicker)
 	accounts := holdings.AccountStats(s.byAccount, s.yahooClient)

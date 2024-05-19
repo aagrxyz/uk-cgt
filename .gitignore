@@ -5,3 +5,4 @@ transactions/*
 trades
 aagr_config.textproto
 .vscode
+secrets.yaml

@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"aagr.xyz/trades/src/yahoo"
+	"aagr.xyz/trades/yahoo"
 	"github.com/go-resty/resty/v2"
 	"github.com/lithammer/fuzzysearch/fuzzy"
 	log "github.com/sirupsen/logrus"

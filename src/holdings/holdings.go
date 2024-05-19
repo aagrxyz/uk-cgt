@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"aagr.xyz/trades/src/record"
+	"aagr.xyz/trades/record"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 )

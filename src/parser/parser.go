@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"aagr.xyz/trades/src/record"
+	"aagr.xyz/trades/record"
 )
 
 const timeFmt = "2006-01-02 15:04:05"

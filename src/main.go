@@ -5,12 +5,12 @@ import (
 	"os"
 	"path"
 
-	"aagr.xyz/trades/src/db"
-	"aagr.xyz/trades/src/parser"
-	"aagr.xyz/trades/src/proto/statementspb"
-	"aagr.xyz/trades/src/server"
-	"aagr.xyz/trades/src/statements"
-	"aagr.xyz/trades/src/yahoo"
+	"aagr.xyz/trades/db"
+	"aagr.xyz/trades/parser"
+	"aagr.xyz/trades/proto/statementspb"
+	"aagr.xyz/trades/server"
+	"aagr.xyz/trades/statements"
+	"aagr.xyz/trades/yahoo"
 	"github.com/go-resty/resty/v2"
 	"google.golang.org/protobuf/encoding/prototext"
 
@@ -44,6 +44,10 @@ func main() {
 		if *rootDir, err = os.Getwd(); err != nil {
 			log.Fatalf("cannot get working directory")
 		}
+	}
+	// make the output directory
+	if err := os.MkdirAll(path.Join(*rootDir, "outputs"), 0755); err != nil {
+		log.Fatalf("cannot create output directories: %v", err)
 	}
 	// Initialize db and yahoo clients
 	yahooClient := yahoo.New(resty.New(), resty.New())

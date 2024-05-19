@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"aagr.xyz/trades/src/record"
+	"aagr.xyz/trades/record"
 )
 
 type defaultParser struct{}

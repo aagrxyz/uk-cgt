@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"aagr.xyz/trades/src/record"
+	"aagr.xyz/trades/record"
 )
 
 // Account is information about that account

@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"aagr.xyz/trades/src/db"
-	"aagr.xyz/trades/src/parser"
-	"aagr.xyz/trades/src/record"
+	"aagr.xyz/trades/db"
+	"aagr.xyz/trades/parser"
+	"aagr.xyz/trades/record"
 	"golang.org/x/exp/maps"
 
 	log "github.com/sirupsen/logrus"
@@ -117,6 +117,9 @@ func FlushRecords(records []*record.Record, outputFile string) error {
 	transactions, err := recordsToCSV(records)
 	if err != nil {
 		return fmt.Errorf("cannot convert records to csv: %v", err)
+	}
+	if err := os.MkdirAll(path.Dir(outputFile), 0755); err != nil {
+		return fmt.Errorf("cannot create directories: %v", err)
 	}
 	if err := os.WriteFile(outputFile, []byte(transactions), 0644); err != nil {
 		return fmt.Errorf("cannot write csv file: %v", err)

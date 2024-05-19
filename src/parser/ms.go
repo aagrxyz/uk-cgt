@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"aagr.xyz/trades/src/db"
-	"aagr.xyz/trades/src/record"
+	"aagr.xyz/trades/db"
+	"aagr.xyz/trades/record"
 	log "github.com/sirupsen/logrus"
 )
 

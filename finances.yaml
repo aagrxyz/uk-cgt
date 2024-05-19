@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finances
+  labels:
+    app: finances
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: finances
+  template:
+    metadata:
+      labels:
+        app: finances
+    spec:
+      containers:
+        - name: finances
+          args:
+            - "--port=7777"
+            - "--config_file=/var/finances/configs/config.textproto"
+            - "--root_dir=/var/finances/data/"
+          envFrom:
+            - secretRef:
+                name: finances-secret
+          image: ghcr.io/aagrxyz/uk-cgt:main
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: finances-storage-volume
+              mountPath: /var/finances/data
+            - name: finances-configs
+              mountPath: /var/finances/configs
+      restartPolicy: Always
+      imagePullSecrets:
+        - name: dockerconfigjson-github-com
+      volumes:
+        - name: finances-storage-volume
+          persistentVolumeClaim:
+            claimName: finances-data-pvc
+        - name: finances-configs
+          secret:
+            secretName: finances-configs
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: finances-data-pvc
+spec:
+  storageClassName: "seaweed"
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finances-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: finances
+  ports:
+    - port: 7777
+---    
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: finances-http
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.tls.certresolver: letsEncrypt
+    traefik.ingress.kubernetes.io/router.tls.domains.0.main: finance.in.aagr.xyz
+    traefik.ingress.kubernetes.io/router.middlewares: chain-no-auth-internal@file
+spec:
+  rules:
+    - host: finance.in.aagr.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: finances-svc
+                port:
+                  number: 7777
+---

@@ -3,9 +3,9 @@ package statements
 import (
 	"fmt"
 
-	"aagr.xyz/trades/src/parser"
-	pb "aagr.xyz/trades/src/proto/statementspb"
-	"aagr.xyz/trades/src/record"
+	"aagr.xyz/trades/parser"
+	pb "aagr.xyz/trades/proto/statementspb"
+	"aagr.xyz/trades/record"
 )
 
 func FromProtoConfig(cfgs *pb.Statements) ([]*Statement, error) {

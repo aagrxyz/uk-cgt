@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"aagr.xyz/trades/src/db"
-	"aagr.xyz/trades/src/proto/statementspb"
+	"aagr.xyz/trades/db"
+	"aagr.xyz/trades/proto/statementspb"
 )
 
 const timeFmt = "2006-01-02 15:04:05"
