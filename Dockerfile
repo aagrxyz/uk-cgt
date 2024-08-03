@@ -5,7 +5,7 @@ RUN apk add --no-cache curl tzdata
 WORKDIR /finances/src/
 COPY ./src ./
 RUN go mod download
-RUN go build -o /finances/finances
+RUN CGO_ENABLED=0 go build -o /finances/finances
 
 WORKDIR /finances/
 

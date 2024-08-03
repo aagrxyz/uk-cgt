@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-resty/resty/v2"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -19,7 +20,9 @@ const (
 var errSessionRefresh = errors.New("yahoo session refresh error")
 
 func New(clientMain *resty.Client, clientSession *resty.Client) *resty.Client {
+	session := clientSession.SetLogger(log.StandardLogger())
 	client := clientMain.
+		SetLogger(log.StandardLogger()).
 		SetBaseURL("https://query1.finance.yahoo.com").
 		SetHeader("authority", "query1.finance.yahoo.com").
 		SetHeader("accept", "*/*").
@@ -41,7 +44,7 @@ func New(clientMain *resty.Client, clientSession *resty.Client) *resty.Client {
 		SetRetryCount(1).
 		OnAfterResponse(func(c *resty.Client, r *resty.Response) error {
 			if r.IsError() {
-				return RefreshSession(c, clientSession)
+				return RefreshSession(c, session)
 			}
 			return nil
 		})
