@@ -25,6 +25,7 @@ const (
 
 var (
 	rootDir            = flag.String("root_dir", "", "The root directory for outputs")
+	staticDir          = flag.String("static_dir", "", "The root directory for static files")
 	transactionsFile   = flag.String("transactions_file", "", "The file for merged transactions")
 	configFile         = flag.String("config_file", "", "The file for parsing config textproto")
 	port               = flag.Int("port", 0, "The port to run the web server on")
@@ -83,8 +84,11 @@ func main() {
 	if err := statements.FlushRecords(records, path.Join(*rootDir, outputTransactions)); err != nil {
 		log.Fatalf("cannot flush merged transactions to disk: %v", err)
 	}
-
-	srv := server.New(records, yahooClient, server.NewAuth(username, password))
+	static, err := server.NewStaticLoader(*staticDir)
+	if err != nil {
+		log.Fatalf("cannot create a static loader: %v", err)
+	}
+	srv := server.New(records, yahooClient, server.NewAuth(username, password), static)
 	if err := srv.Run(*port, path.Join(*rootDir, reportFilename)); err != nil {
 		log.Fatalf("cannot run server: %v", err)
 	}

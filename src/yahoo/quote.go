@@ -47,6 +47,13 @@ func (r *ResponseQuote) Price() float64 {
 	return r.RegularMarketPrice.Raw
 }
 
+func (r *ResponseQuote) TodayPercentChange() float64 {
+	if r == nil {
+		return 0.0
+	}
+	return r.RegularMarketChangePercent.Raw
+}
+
 type ResponseFieldFloat struct {
 	Raw float64 `json:"raw"`
 	Fmt string  `json:"fmt"`

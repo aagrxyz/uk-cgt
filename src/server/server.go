@@ -36,6 +36,7 @@ func NewAuth(u, p string) *Auth {
 }
 
 type Server struct {
+	static      *StaticLoader
 	auth        *Auth
 	yahooClient *resty.Client
 	records     []*record.Record
@@ -43,8 +44,9 @@ type Server struct {
 	byTicker    map[string]*holdings.Holding
 }
 
-func New(records []*record.Record, yc *resty.Client, auth *Auth) *Server {
+func New(records []*record.Record, yc *resty.Client, auth *Auth, static *StaticLoader) *Server {
 	return &Server{
+		static:      static,
 		yahooClient: yc,
 		auth:        auth,
 		records:     records,
@@ -127,20 +129,37 @@ func (s *Server) basicAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) portfolioHandler(w http.ResponseWriter, r *http.Request) {
-	portfolio := holdings.Portfolio(s.byTicker, s.yahooClient)
-	fmt.Fprintf(w, `
-	<!DOCTYPE html>
-	<html>
-	<head>
-		<title>DATE: %s</title>
-	</head>
-	<body>
-	%s
-	</body>
-	</html>`, time.Now().Format(timeFmt), portfolio.RenderHTML())
+	rows := holdings.PortfolioRows(s.byTicker, s.yahooClient)
+	tmpl := s.static.Portfolio()
+	if tmpl == nil {
+		http.Error(w, "no content", http.StatusInternalServerError)
+		return
+	}
+	type Data struct {
+		Timestamp                        string
+		Rows                             []*holdings.TickerRow
+		TotalCost, TotalValue, TotalGain float64
+		TotalGainPercentage              float64
+	}
+	// sort the place where you lost most money
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].GBPPriceMetrics.TotalGain < rows[j].GBPPriceMetrics.TotalGain
+	})
+	d := Data{Timestamp: time.Now().Format(timeFmt), Rows: rows}
+	for _, r := range rows {
+		d.TotalCost += r.GBPPriceMetrics.TotalCost
+		d.TotalValue += r.GBPPriceMetrics.TotalValue
+		d.TotalGain += r.GBPPriceMetrics.TotalGain
+	}
+	d.TotalGainPercentage = d.TotalGain / d.TotalCost * 100.0
+	err := tmpl.Execute(w, d)
+	if err != nil {
+		log.Errorf("cannot execute template: %v", err)
+		http.Error(w, "cannot generate portfolio", http.StatusInternalServerError)
+	}
 }
 func (s *Server) portfolioCSVHandler(w http.ResponseWriter, r *http.Request) {
-	portfolio := holdings.Portfolio(s.byTicker, s.yahooClient)
+	portfolio := holdings.PortfolioTable(s.byTicker, s.yahooClient)
 	fmt.Fprint(w, portfolio.RenderCSV())
 }
 
@@ -172,23 +191,49 @@ func (s *Server) cgtHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) accountHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, `
-	<!DOCTYPE html>
-	<html>
-	<head>
-		<title>Account Stats: %s</title>
-	</head>
-	<body>`, time.Now().Format(timeFmt))
-	accounts := holdings.AccountStats(s.byAccount, s.yahooClient)
-	for _, act := range accounts {
-		fmt.Fprint(w, act.RenderHTML())
-		fmt.Fprint(w, "<br><br>")
+	byAct := holdings.AccountRows(s.byAccount, s.yahooClient)
+	tmpl := s.static.Accounts()
+	if tmpl == nil {
+		http.Error(w, "no content", http.StatusInternalServerError)
+		return
 	}
-	fmt.Fprint(w, `</body></html>`)
+	type AccountData struct {
+		Name                             string
+		Rows                             []*holdings.TickerRow
+		TotalCost, TotalValue, TotalGain float64
+		TotalGainPercentage              float64
+	}
+	type Data struct {
+		Timestamp string
+		Accounts  []*AccountData
+	}
+
+	d := Data{Timestamp: time.Now().Format(timeFmt)}
+	for act, rows := range byAct {
+		ad := &AccountData{Name: act.Name}
+		// sort the place where you lost most money
+		sort.Slice(rows, func(i, j int) bool {
+			return rows[i].GBPPriceMetrics.TotalGain < rows[j].GBPPriceMetrics.TotalGain
+		})
+		ad.Rows = rows
+		for _, r := range rows {
+			ad.TotalCost += r.GBPPriceMetrics.TotalCost
+			ad.TotalValue += r.GBPPriceMetrics.TotalValue
+			ad.TotalGain += r.GBPPriceMetrics.TotalGain
+		}
+		ad.TotalGainPercentage = ad.TotalGain / ad.TotalCost * 100.0
+		d.Accounts = append(d.Accounts, ad)
+	}
+	err := tmpl.Execute(w, d)
+	if err != nil {
+		log.Errorf("cannot execute template: %v", err)
+		http.Error(w, "cannot generate accounts", http.StatusInternalServerError)
+	}
 }
+
 func (s *Server) accountsCSVHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Account Stats: %s", time.Now().Format(timeFmt))
-	accounts := holdings.AccountStats(s.byAccount, s.yahooClient)
+	accounts := holdings.AccountTable(s.byAccount, s.yahooClient)
 	i := 0
 	for _, act := range accounts {
 		act.SetTitle("")
@@ -205,9 +250,9 @@ func (s *Server) writeReport(filename string) error {
 	if err := os.MkdirAll(path.Dir(filename), 0755); err != nil {
 		return fmt.Errorf("cannot create directories: %v", err)
 	}
-	portfolio := holdings.Portfolio(s.byTicker, s.yahooClient)
+	portfolio := holdings.PortfolioTable(s.byTicker, s.yahooClient)
 	cgt, debug := holdings.CGT(s.byTicker)
-	accounts := holdings.AccountStats(s.byAccount, s.yahooClient)
+	accounts := holdings.AccountTable(s.byAccount, s.yahooClient)
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("DATE: %s\n\n", time.Now().Format(timeFmt)))

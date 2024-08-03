@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accounts</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .table-container {
+            width: 100%;
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            table-layout: auto;
+            font-size: 14px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 4px 8px;
+            text-align: center;
+            white-space: nowrap;
+        }
+        th {
+            background-color: #f2f2f2;
+            cursor: pointer;
+            position: relative;
+        }
+        th::after {
+            content: '';
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            width: 0;
+            height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            transform: translateY(-50%);
+        }
+        th.sort-asc::after {
+            border-bottom: 5px solid #000;
+        }
+        th.sort-desc::after {
+            border-top: 5px solid #000;
+        }
+        .gain {
+            background-color: #d4edda;
+        }
+        .loss {
+            background-color: #f8d7da;
+        }
+        @media (max-width: 600px) {
+            table {
+                font-size: 12px;
+            }
+        }
+        tfoot td {
+            font-weight: bold;
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+
+<body>
+  <h1>Current Accounts @ {{.Timestamp}}</h1>
+  {{range $act := .Accounts}}
+  <div class="table-container">
+    <h4>Account: {{$act.Name}}</h4>
+    <table classs="sortable">
+      <thead>
+        <tr>
+          <th onclick="sortTable(this, 0)">Ticker</th>
+          <th onclick="sortTable(this, 1)">Quantity</th>
+          <th onclick="sortTable(this, 2)">Currency</th>
+          <th onclick="sortTable(this, 3)">Avg Price</th>
+          <th onclick="sortTable(this, 4)">Present Price</th>
+          <th onclick="sortTable(this, 5)">Present Value</th>
+          <th onclick="sortTable(this, 6)">Present Value (GBP)</th>
+          <th onclick="sortTable(this, 7)">Gain Total</th>
+          <th onclick="sortTable(this, 8)">Gain Total (GBP)</th>
+          <th onclick="sortTable(this, 9)">Gain Total %</th>
+          <th onclick="sortTable(this, 10)">Gain Today %</th>
+          <th onclick="sortTable(this, 11)">Gain Total (GBP) %</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range $r := $act.Rows}}
+        <tr class="{{if gt $r.BasePriceMetrics.GainTodayPercentage 0.0}}gain{{else}}loss{{end}}">
+          <td>{{$r.Name}}</td>
+          <td>{{printf "%.2f" $r.Quantity}}</td>
+          <td>{{$r.Currency}}</td>
+          <td>{{printf "%.2f" $r.BasePriceMetrics.AvgPrice}}</td>
+          <td>{{printf "%.2f" $r.BasePriceMetrics.PresentPrice}}</td>
+          <td>{{printf "%.2f" $r.BasePriceMetrics.TotalValue}}</td>
+          <td>{{printf "%.2f" $r.GBPPriceMetrics.TotalValue}}</td>
+          <td>{{printf "%.2f" $r.BasePriceMetrics.TotalGain}}</td>
+          <td>{{printf "%.2f" $r.GBPPriceMetrics.TotalGain}}</td>
+          <td>{{printf "%.2f" $r.BasePriceMetrics.TotalGainPercentage}}</td>
+          <td>{{printf "%.2f" $r.BasePriceMetrics.GainTodayPercentage}}</td>
+          <td>{{printf "%.2f" $r.GBPPriceMetrics.TotalGainPercentage}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="7">Total Value: {{printf "%.2f" $act.TotalValue}}</td>
+          <td colspan="2">Total Gain: {{printf "%.2f" $act.TotalGain}}</td>
+          <td colspan="3">Total Gain %: {{printf "%.3f" $act.TotalGainPercentage}}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {{end}}
+  <script>
+    function sortTable(header, n) {
+        const table = header.closest('table');
+        let rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+        switching = true;
+        dir = "asc";
+        resetArrows(table);
+        header.classList.add("sort-" + dir);
+        while (switching) {
+            switching = false;
+            rows = table.rows;
+            for (i = 1; i < (rows.length - 2); i++) {
+                shouldSwitch = false;
+                x = rows[i].getElementsByTagName("TD")[n];
+                y = rows[i + 1].getElementsByTagName("TD")[n];
+                if (dir === "asc") {
+                    if (compareValues(x, y, n)) {
+                        shouldSwitch = true;
+                        break;
+                    }
+                } else if (dir === "desc") {
+                    if (compareValues(y, x, n)) {
+                        shouldSwitch = true;
+                        break;
+                    }
+                }
+            }
+            if (shouldSwitch) {
+                rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+                switching = true;
+                switchcount++;
+            } else {
+                if (switchcount === 0 && dir === "asc") {
+                    dir = "desc";
+                    header.classList.remove("sort-asc");
+                    header.classList.add("sort-desc");
+                    switching = true;
+                }
+            }
+        }
+    }
+
+    function compareValues(a, b, n) {
+        const valA = a.innerHTML;
+        const valB = b.innerHTML;
+        if (n === 0) {
+            return valA.toLowerCase() > valB.toLowerCase();
+        } else {
+            return parseFloat(valA) > parseFloat(valB);
+        }
+    }
+
+    function resetArrows(table) {
+        const ths = table.getElementsByTagName("TH");
+        for (let i = 0; i < ths.length; i++) {
+            ths[i].classList.remove("sort-asc");
+            ths[i].classList.remove("sort-desc");
+        }
+    }
+</script>
+</body>
+
+</html>

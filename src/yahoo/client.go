@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-resty/resty/v2"
+	_ "github.com/motemen/go-loghttp/global"
 	log "github.com/sirupsen/logrus"
 )
 

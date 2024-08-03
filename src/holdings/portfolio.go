@@ -21,47 +21,47 @@ var tf = func(val interface{}) string {
 	return fmt.Sprintf("%.2f", val)
 }
 
-func presentPrice(ticker string, yahooClient *resty.Client) float64 {
+func priceAndDayChange(ticker string, yahooClient *resty.Client) (float64, float64) {
 	meta, err := db.TickerMeta(ticker)
 	if err != nil {
 		log.Warningf("Cannot get the yahoo ticker for %s, so using 0 present value: %v", ticker, err)
-		return 0.0
+		return 0.0, 0.0
 	}
 	if meta.AssetType == db.ForexType {
-		return presentForex(record.NewCurrency(ticker), yahooClient)
+		return presentForex(record.NewCurrency(ticker), yahooClient), 0.0
 	}
 	quote, err := yahoo.GetQuote(yahooClient, meta.YahooTicker)
 	if err != nil {
 		log.Warningf("Cannot get price from yahoo for ticker %s: %v", meta.YahooTicker, err)
-		return 0.0
+		return 0.0, 0.0
 	}
 	if quote.Currency != meta.YahooCurrency {
 		log.Warningf("Stored yahoo ticker currency is different from present value in quote (stored:%s, got:%s)", meta.YahooCurrency, quote.Currency)
-		return 0.0
+		return 0.0, 0.0
 	}
 	// Handle different types of currencies i.e. GBP and GBX bull-shit
 	if quote.Currency == "GBp" {
 		if record.NewCurrency(meta.Currency) == record.GBX {
-			return quote.Price()
+			return quote.Price(), quote.TodayPercentChange()
 		}
 		if record.NewCurrency(meta.Currency) == record.GBP {
-			return quote.Price() / 100.0
+			return quote.Price() / 100.0, quote.TodayPercentChange()
 		}
 	}
 	if quote.Currency == "GBP" {
 		if record.NewCurrency(meta.Currency) == record.GBP {
-			return quote.Price()
+			return quote.Price(), quote.TodayPercentChange()
 		}
 		if record.NewCurrency(meta.Currency) == record.GBX {
-			return quote.Price() * 100.0
+			return quote.Price() * 100.0, quote.TodayPercentChange()
 		}
 	}
 	// If it is any other currency typically USD, EUR, INR - this will be correct and match the ticker currency
 	if record.NewCurrency(quote.Currency) != record.NewCurrency(meta.Currency) {
 		log.Warningf("The currencies should match for ticker %s, but did not (got=%s, want=%s)", ticker, quote.Currency, meta.Currency)
-		return 0.0
+		return 0.0, 0.0
 	}
-	return quote.Price()
+	return quote.Price(), quote.TodayPercentChange()
 }
 
 var cachedForex *ttlcache.Cache[record.Currency, float64]
@@ -111,7 +111,44 @@ func assetType(ticker string) string {
 	return res
 }
 
-func accountTable(act *Account, yahooClient *resty.Client) table.Writer {
+func AccountRows(byAccount map[record.Account]*Account, yahooClient *resty.Client) map[record.Account][]*TickerRow {
+	res := make(map[record.Account][]*TickerRow)
+	for name, act := range byAccount {
+		var actRows []*TickerRow
+		for ticker, pos := range act.positions {
+			if math.Abs(pos.quantity-0.0) <= epsilon {
+				continue
+			}
+			price, dayChange := priceAndDayChange(ticker, yahooClient)
+			meta, err := db.TickerMeta(ticker)
+			if err != nil {
+				log.Errorf("Cannot get metadata about ticker %s: %v", ticker, err)
+			}
+			forex := presentForex(record.Currency(meta.Currency), yahooClient)
+			assetType := assetType(ticker)
+			// This is incorrect as we are using present forex rather than the forex at which we bought it
+			// TODO(aagr): Fix this
+			gbpPos := &position{
+				quantity:  pos.quantity,
+				totalCost: pos.totalCost * forex,
+			}
+			tr := &TickerRow{
+				Name:             ticker,
+				AssetType:        assetType,
+				Currency:         meta.Currency,
+				Quantity:         pos.quantity,
+				Forex:            forex,
+				BasePriceMetrics: NewPriceMetrics(pos, price, dayChange),
+				GBPPriceMetrics:  NewPriceMetrics(gbpPos, price*forex, dayChange),
+			}
+			actRows = append(actRows, tr)
+		}
+		res[name] = actRows
+	}
+	return res
+}
+
+func accountTable(act record.Account, rows []*TickerRow) table.Writer {
 	t := table.NewWriter()
 	t.SetTitle(fmt.Sprintf("Account %s (currency=%s) Holdings", act.Name, act.Currency))
 	t.SetStyle(table.StyleLight)
@@ -131,50 +168,104 @@ func accountTable(act *Account, yahooClient *resty.Client) table.Writer {
 	})
 	t.SortBy([]table.SortBy{{Number: 1}})
 	var totalValueGBP, totalGainGBP float64
-	for ticker, pos := range act.positions {
-		if math.Abs(pos.quantity-0.0) <= epsilon {
-			continue
-		}
-		price := presentPrice(ticker, yahooClient)
-		meta, err := db.TickerMeta(ticker)
-		if err != nil {
-			log.Errorf("Cannot get metadata about ticker %s: %v", ticker, err)
-		}
-		forex := presentForex(record.Currency(meta.Currency), yahooClient)
-		assetType := assetType(ticker)
-		presentValue := pos.quantity * price
-		gain := presentValue - pos.totalCost
+	for _, r := range rows {
 		t.AppendRow(table.Row{
-			act.Account.Name,
-			ticker,
-			assetType,
-			meta.Currency,
-			pos.quantity,
-			pos.averageCost(),
-			price, presentValue,
-			gain,
-			presentValue * forex,
-			gain * forex,
+			act.Name,
+			r.Name,
+			r.AssetType,
+			r.Currency,
+			r.Quantity,
+			r.BasePriceMetrics.AvgPrice,
+			r.BasePriceMetrics.PresentPrice, r.BasePriceMetrics.TotalValue,
+			r.BasePriceMetrics.TotalGain,
+			r.GBPPriceMetrics.TotalValue,
+			r.GBPPriceMetrics.TotalGain,
 		})
-		totalValueGBP += (presentValue * forex)
-		totalGainGBP += (gain * forex)
+		totalValueGBP += r.GBPPriceMetrics.TotalValue
+		totalGainGBP += r.GBPPriceMetrics.TotalGain
 	}
 	t.AppendFooter(table.Row{
-		act.Account.Name, "", "", "", "", "", "", "", "", totalValueGBP, totalGainGBP,
+		act.Name, "", "", "", "", "", "", "", "", totalValueGBP, totalGainGBP,
 	})
 	return t
 }
 
-func AccountStats(byAccount map[record.Account]*Account, yahooClient *resty.Client) map[record.Account]table.Writer {
+func AccountTable(byAccount map[record.Account]*Account, yahooClient *resty.Client) map[record.Account]table.Writer {
+	actRows := AccountRows(byAccount, yahooClient)
 	var res = make(map[record.Account]table.Writer)
-	for act, pos := range byAccount {
-		res[act] = accountTable(pos, yahooClient)
+	for act, rows := range actRows {
+		res[act] = accountTable(act, rows)
+	}
+	return res
+}
+
+type PriceMetrics struct {
+	AvgPrice, TotalCost            float64
+	PresentPrice                   float64
+	TotalValue, TotalGain          float64
+	TotalGainPercentage            float64
+	GainToday, GainTodayPercentage float64
+}
+
+func NewPriceMetrics(p *position, present float64, dayChangePercent float64) PriceMetrics {
+	res := PriceMetrics{
+		AvgPrice:            p.averageCost(),
+		TotalCost:           p.totalCost,
+		PresentPrice:        present,
+		TotalValue:          p.quantity * present,
+		GainTodayPercentage: dayChangePercent,
+	}
+	res.TotalGain = res.TotalValue - res.TotalCost
+	res.TotalGainPercentage = res.TotalGain / res.TotalCost * 100.0
+	return res
+}
+
+type TickerRow struct {
+	Name      string
+	AssetType string
+	Currency  string
+	// all of the fields below depend on the taxabale field
+	Taxable          string
+	Quantity         float64
+	BasePriceMetrics PriceMetrics
+	Forex            float64
+	GBPPriceMetrics  PriceMetrics
+}
+
+func PortfolioRows(holdings map[string]*Holding, yahooClient *resty.Client) []*TickerRow {
+	var res []*TickerRow
+	for ticker, h := range holdings {
+		price, dayChange := priceAndDayChange(ticker, yahooClient)
+		forex := presentForex(h.currency, yahooClient)
+		assetType := assetType(ticker)
+		baseRec := TickerRow{
+			Name:      ticker,
+			AssetType: assetType,
+			Currency:  string(h.currency),
+			Forex:     forex,
+		}
+		if math.Abs(h.taxable.gbp.quantity-0.0) > epsilon {
+			tax := baseRec
+			tax.Taxable = "Y"
+			tax.Quantity = h.taxable.base.quantity
+			tax.BasePriceMetrics = NewPriceMetrics(h.taxable.base, price, dayChange)
+			tax.GBPPriceMetrics = NewPriceMetrics(h.taxable.gbp, price*forex, dayChange)
+			res = append(res, &tax)
+		}
+		if math.Abs(h.cgtExempt.gbp.quantity-0.0) > epsilon {
+			exempt := baseRec
+			exempt.Taxable = "N"
+			exempt.Quantity = h.cgtExempt.base.quantity
+			exempt.BasePriceMetrics = NewPriceMetrics(h.cgtExempt.base, price, dayChange)
+			exempt.GBPPriceMetrics = NewPriceMetrics(h.cgtExempt.gbp, price*forex, dayChange)
+			res = append(res, &exempt)
+		}
 	}
 	return res
 }
 
 // Portfolio prints a report for the open positions
-func Portfolio(holdings map[string]*Holding, yahooClient *resty.Client) table.Writer {
+func PortfolioTable(holdings map[string]*Holding, yahooClient *resty.Client) table.Writer {
 	var totalCost, presentValue float64
 	t := table.NewWriter()
 	rowConfigAutoMerge := table.RowConfig{AutoMerge: true}
@@ -201,39 +292,25 @@ func Portfolio(holdings map[string]*Holding, yahooClient *resty.Client) table.Wr
 	t.SortBy([]table.SortBy{
 		{Number: 1},
 	})
-	for ticker, h := range holdings {
-		price := presentPrice(ticker, yahooClient)
-		forex := presentForex(h.currency, yahooClient)
-		assetType := assetType(ticker)
-
-		if math.Abs(h.taxable.gbp.quantity-0.0) > epsilon {
-			t.AppendRow(table.Row{
-				ticker,
-				assetType,
-				"Y",
-				h.currency, h.taxable.gbp.quantity,
-				h.taxable.base.averageCost(), h.taxable.base.totalCost,
-				h.taxable.gbp.averageCost(), h.taxable.gbp.totalCost,
-				price, h.taxable.base.quantity * price,
-				price * forex, h.taxable.gbp.quantity * price * forex,
-			}, rowConfigAutoMerge)
-			totalCost += h.taxable.gbp.totalCost
-			presentValue += h.taxable.gbp.quantity * price * forex
-		}
-		if math.Abs(h.cgtExempt.gbp.quantity-0.0) > epsilon {
-			t.AppendRow(table.Row{
-				ticker,
-				assetType,
-				"N",
-				h.currency, h.cgtExempt.gbp.quantity,
-				h.cgtExempt.base.averageCost(), h.cgtExempt.base.totalCost,
-				h.cgtExempt.gbp.averageCost(), h.cgtExempt.gbp.totalCost,
-				price, h.cgtExempt.base.quantity * price,
-				price * forex, h.cgtExempt.gbp.quantity * price * forex,
-			}, rowConfigAutoMerge)
-			totalCost += h.cgtExempt.gbp.totalCost
-			presentValue += h.cgtExempt.gbp.quantity * price * forex
-		}
+	rows := PortfolioRows(holdings, yahooClient)
+	for _, r := range rows {
+		t.AppendRow(table.Row{
+			r.Name,
+			r.AssetType,
+			r.Taxable,
+			r.Currency,
+			r.Quantity,
+			r.BasePriceMetrics.AvgPrice,
+			r.BasePriceMetrics.TotalCost,
+			r.GBPPriceMetrics.AvgPrice,
+			r.GBPPriceMetrics.TotalCost,
+			r.BasePriceMetrics.PresentPrice,
+			r.BasePriceMetrics.TotalValue,
+			r.GBPPriceMetrics.PresentPrice,
+			r.GBPPriceMetrics.TotalValue,
+		}, rowConfigAutoMerge)
+		totalCost += r.GBPPriceMetrics.TotalCost
+		presentValue += r.GBPPriceMetrics.TotalValue
 	}
 	t.AppendFooter(table.Row{
 		"", "", "", "", "", "", "", "", totalCost, "", "", "", presentValue,
