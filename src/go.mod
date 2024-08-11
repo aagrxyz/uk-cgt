@@ -12,6 +12,7 @@ require (
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d
 	google.golang.org/protobuf v1.28.0
+	moul.io/http2curl v1.0.0
 )
 
 require (

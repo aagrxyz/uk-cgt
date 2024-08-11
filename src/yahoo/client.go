@@ -10,6 +10,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	_ "github.com/motemen/go-loghttp/global"
 	log "github.com/sirupsen/logrus"
+	"moul.io/http2curl"
 )
 
 const (
@@ -19,10 +20,16 @@ const (
 )
 
 var errSessionRefresh = errors.New("yahoo session refresh error")
+var prehook resty.PreRequestHook = func(c *resty.Client, r *http.Request) error {
+	command, _ := http2curl.GetCurlCommand(r)
+	log.Infof(command.String())
+	return nil
+}
 
 func New(clientMain *resty.Client, clientSession *resty.Client) *resty.Client {
-	session := clientSession.SetLogger(log.StandardLogger())
+	session := clientSession.SetLogger(log.StandardLogger()).SetPreRequestHook(prehook)
 	client := clientMain.
+		SetPreRequestHook(prehook).
 		SetLogger(log.StandardLogger()).
 		SetBaseURL("https://query1.finance.yahoo.com").
 		SetHeader("authority", "query1.finance.yahoo.com").
@@ -45,6 +52,7 @@ func New(clientMain *resty.Client, clientSession *resty.Client) *resty.Client {
 		SetRetryCount(1).
 		OnAfterResponse(func(c *resty.Client, r *resty.Response) error {
 			if r.IsError() {
+				log.Errorf(r.String())
 				return RefreshSession(c, session)
 			}
 			return nil
