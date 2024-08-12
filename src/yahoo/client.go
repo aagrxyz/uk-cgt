@@ -27,7 +27,13 @@ var prehook resty.PreRequestHook = func(c *resty.Client, r *http.Request) error 
 }
 
 func New(clientMain *resty.Client, clientSession *resty.Client) *resty.Client {
-	session := clientSession.SetLogger(log.StandardLogger()).SetPreRequestHook(prehook)
+	session := clientSession.SetLogger(log.StandardLogger()).
+		SetPreRequestHook(prehook).
+		OnAfterResponse(func(c *resty.Client, r *resty.Response) error {
+			log.Errorf(r.String())
+			return nil
+		})
+
 	client := clientMain.
 		SetPreRequestHook(prehook).
 		SetLogger(log.StandardLogger()).
