@@ -30,7 +30,9 @@ func New(clientMain *resty.Client, clientSession *resty.Client) *resty.Client {
 	session := clientSession.SetLogger(log.StandardLogger()).
 		SetPreRequestHook(prehook).
 		OnAfterResponse(func(c *resty.Client, r *resty.Response) error {
-			log.Errorf(r.String())
+			log.Infof("headers in session refresh: %v", r.Header())
+			log.Infof("cookies in session refresh: %v", r.Cookies())
+			log.Infof("status in session refresh: %v", r.StatusCode())
 			return nil
 		})
 
@@ -57,8 +59,9 @@ func New(clientMain *resty.Client, clientSession *resty.Client) *resty.Client {
 		AddRetryAfterErrorCondition().
 		SetRetryCount(1).
 		OnAfterResponse(func(c *resty.Client, r *resty.Response) error {
+			log.Infof("headers in query: %v", r.Header())
 			if r.IsError() {
-				log.Errorf(r.String())
+				log.Errorf("error in query: %v", r.String())
 				return RefreshSession(c, session)
 			}
 			return nil
