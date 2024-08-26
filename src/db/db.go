@@ -5,15 +5,12 @@ package db
 
 import (
 	"fmt"
-
-	"github.com/go-resty/resty/v2"
 )
 
 // InitDB is called by caller to initialize a database for symbols and forex.
-func InitDB(rootDir string, client *resty.Client) {
+func InitDB(rootDir string) {
 	initSymbols(rootDir)
 	initForex(rootDir)
-	yahooClient = client
 }
 
 // SerializeDB is called by caller to persist changes to disk

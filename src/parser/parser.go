@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"aagr.xyz/trades/db"
 	"aagr.xyz/trades/record"
 )
 
@@ -56,11 +57,34 @@ func Parse(in io.Reader, parser Parser) ([]*record.Record, error) {
 			continue
 		}
 		for _, r := range rr {
-			if err := r.ValidateAndEnrich(); err != nil {
+			if err := validateAndEnrich(r); err != nil {
 				return nil, fmt.Errorf("cannot validate and enrich record: %v", err)
 			}
 			res = append(res, r)
 		}
 	}
 	return res, nil
+}
+
+func validateAndEnrich(r *record.Record) error {
+	// Let's store everything in GBP
+	if r.Currency == record.GBX {
+		r.PricePerShare /= 100.0
+		r.Currency = record.GBP
+		r.ExchangeRate = 1.0
+	}
+	if err := r.AssertMaths(); err != nil {
+		return fmt.Errorf("cannot assert the maths for the record (record = %s): %v", r.String(), err)
+	}
+	if err := db.FillTickerOrName(r); err != nil {
+		return fmt.Errorf("cannot fill ticker or name from db: %v", err)
+	}
+	// If it is not a buy or sell transaction, then don't fiddle around with currency
+	if !(r.Action == record.Sell || r.Action == record.Buy) {
+		return nil
+	}
+	if err := db.SetCurrency(r.Ticker, r.Currency); err != nil {
+		return fmt.Errorf("cannot set currency of the ticker (record = %s): %v", r.String(), err)
+	}
+	return nil
 }

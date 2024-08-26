@@ -64,7 +64,7 @@ func (p *ibkrDividendParser) ToRecord(contents []string) ([]*record.Record, erro
 		}
 	}
 	// We use IBKR as authoritative source
-	db.AddForex(r.Timestamp, string(r.Currency), r.ExchangeRate)
+	db.AddForex(r.Timestamp, r.Currency, r.ExchangeRate)
 	r.Total = r.ShareCount * r.ExchangeRate * r.PricePerShare
 	return []*record.Record{r}, nil
 }

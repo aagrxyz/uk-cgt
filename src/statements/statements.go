@@ -107,9 +107,6 @@ func Records(statements []*Statement, rootDir string) ([]*record.Record, error) 
 	if err != nil {
 		return nil, fmt.Errorf("cannot read records: %v", err)
 	}
-	if err := db.EnrichFromYahoo(); err != nil {
-		log.Errorf("Cannot enrich db from yahoo finance, present data may be inaccurate: %v", err)
-	}
 	return records, err
 }
 

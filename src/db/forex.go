@@ -7,15 +7,18 @@ import (
 	"path"
 	"time"
 
+	"aagr.xyz/trades/config"
+	"aagr.xyz/trades/record"
+
 	log "github.com/sirupsen/logrus"
 )
 
 const forexJSONFilename = "outputs/fx_db.json"
 
-var forex map[time.Time]map[string]float64
+var forex map[time.Time]map[record.Currency]float64
 
 func initForex(rootDir string) {
-	forex = make(map[time.Time]map[string]float64)
+	forex = make(map[time.Time]map[record.Currency]float64)
 	data, err := os.ReadFile(path.Join(rootDir, forexJSONFilename))
 	if err != nil {
 		log.Errorf("Cannot read file for forex: %v", err)
@@ -42,34 +45,38 @@ func serializeForex(rootDir string) error {
 
 // AddForex adds a mapping for a given date to GBP
 // if currency is USD, then it stores X where, 1 USD = X GBP
-func AddForex(ts time.Time, currency string, value float64) {
+func AddForex(ts time.Time, currency record.Currency, value float64) {
 	date := ts.Truncate(24 * time.Hour)
 	if _, ok := forex[date]; !ok {
-		forex[date] = make(map[string]float64)
+		forex[date] = make(map[record.Currency]float64)
 	}
-	if _, ok := forex[date][string(currency)]; ok {
+	if _, ok := forex[date][currency]; ok {
 		return
 	}
-	forex[date][string(currency)] = value
+	forex[date][currency] = value
 }
 
 // GetForex returns the conversion rate to GBP.
-func GetForex(ts time.Time, currency string) float64 {
+func GetForex(ts time.Time, currency record.Currency) (float64, error) {
 	if currency == "GBP" {
-		return 1.0
+		return 1.0, nil
 	} else if currency == "GBX" {
-		return 0.01
+		return 0.01, nil
 	}
 	date := ts.Truncate(24 * time.Hour)
 	if _, ok := forex[date]; !ok {
-		forex[date] = make(map[string]float64)
+		forex[date] = make(map[record.Currency]float64)
 	}
-	if val, ok := forex[date][string(currency)]; ok {
-		return val
+	if val, ok := forex[date][currency]; ok {
+		return val, nil
 	}
 	var inp float64
-	fmt.Printf("Exchange rate not known for date %v, currency 1 %v to GBP, please enter:\n", date.Format("2006-01-02"), currency)
+	s := fmt.Sprintf("Exchange rate not known for date %v, currency 1 %v to GBP, please enter:", date.Format("2006-01-02"), currency)
+	if config.Mode() == config.SERVER_MODE {
+		return 0.0, fmt.Errorf("%s", s)
+	}
+	fmt.Printf("%s\n", s)
 	fmt.Scanf("%f", &inp)
-	forex[date][string(currency)] = inp
-	return inp
+	forex[date][currency] = inp
+	return inp, nil
 }

@@ -93,7 +93,7 @@ func (p *ibkrParser) ToRecord(contents []string) ([]*record.Record, error) {
 		}
 	}
 	// We use IBKR as authoritative source
-	db.AddForex(r.Timestamp, string(r.Currency), r.ExchangeRate)
+	db.AddForex(r.Timestamp, r.Currency, r.ExchangeRate)
 
 	r.Commission, err = strconv.ParseFloat(contents[8], 64)
 	if err != nil {

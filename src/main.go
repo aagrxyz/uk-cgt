@@ -5,22 +5,17 @@ import (
 	"os"
 	"path"
 
+	"aagr.xyz/trades/config"
 	"aagr.xyz/trades/db"
+	"aagr.xyz/trades/marketdata"
 	"aagr.xyz/trades/parser"
 	"aagr.xyz/trades/proto/statementspb"
 	"aagr.xyz/trades/server"
 	"aagr.xyz/trades/statements"
 	"aagr.xyz/trades/yahoo"
-	"github.com/go-resty/resty/v2"
 	"google.golang.org/protobuf/encoding/prototext"
 
 	log "github.com/sirupsen/logrus"
-)
-
-const (
-	outputTransactions = "outputs/merged_transactions.csv"
-	reportFilename     = "outputs/report.txt"
-	ghostfolioFile     = "outputs/ghostfolio.json"
 )
 
 var (
@@ -33,8 +28,8 @@ var (
 )
 
 func init() {
-	username = Env("AUTH_USERNAME", "")
-	password = Env("AUTH_PASSWORD", "")
+	username = config.Env("AUTH_USERNAME", "")
+	password = config.Env("AUTH_PASSWORD", "")
 }
 
 func main() {
@@ -46,16 +41,23 @@ func main() {
 			log.Fatalf("cannot get working directory")
 		}
 	}
+	if *port > 0 {
+		config.SetMode(config.SERVER_MODE)
+	}
 	// make the output directory
 	if err := os.MkdirAll(path.Join(*rootDir, "outputs"), 0755); err != nil {
 		log.Fatalf("cannot create output directories: %v", err)
 	}
 	// Initialize db and yahoo clients
-	yahooClient := yahoo.New(resty.New(), resty.New())
-	yahoo.RefreshSession(yahooClient, resty.New())
-	db.InitDB(*rootDir, yahooClient)
+	yc, err := yahoo.NewBackend()
+	if err != nil {
+		log.Fatalf("cannot create a new yahoo backend: %v", err)
+	}
+	market := marketdata.NewService(map[marketdata.Source]marketdata.Backend{
+		marketdata.YAHOO: yc,
+	})
+	db.InitDB(*rootDir)
 	var sts []*statements.Statement
-
 	if *configFile != "" {
 		b, err := os.ReadFile(*configFile)
 		if err != nil {
@@ -71,25 +73,26 @@ func main() {
 		}
 		sts = append(sts, parsed...)
 	}
-
 	if *transactionsFile != "" {
 		sts = append(sts, statements.New(parser.NewDefault(), "", []string{*transactionsFile}))
 	}
 
-	records, err := statements.Records(sts, *rootDir)
-	if err != nil {
-		log.Fatalf("cannot read records: %v", err)
-	}
-	// Flush these transactions to disk
-	if err := statements.FlushRecords(records, path.Join(*rootDir, outputTransactions)); err != nil {
-		log.Fatalf("cannot flush merged transactions to disk: %v", err)
-	}
 	static, err := server.NewStaticLoader(*staticDir)
 	if err != nil {
 		log.Fatalf("cannot create a static loader: %v", err)
 	}
-	srv := server.New(records, yahooClient, server.NewAuth(username, password), static)
-	if err := srv.Run(*port, path.Join(*rootDir, reportFilename)); err != nil {
+	cfg := &server.Config{
+		Statements: sts,
+		RootDir:    *rootDir,
+		Auth:       server.NewAuthorization(username, password),
+		Market:     market,
+		Static:     static,
+	}
+	srv, err := server.New(cfg)
+	if err != nil {
+		log.Fatalf("cannot create a new server: %v", err)
+	}
+	if err := srv.Run(*port); err != nil {
 		log.Fatalf("cannot run server: %v", err)
 	}
 }

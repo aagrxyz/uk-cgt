@@ -197,11 +197,6 @@ func calculateInternal(ticker string, recordsOrig []*record.Record) (*Holding, e
 			if err := handleSplit(taxable, cgtExempt, r); err != nil {
 				return nil, err
 			}
-		case record.Rename:
-			return nil, fmt.Errorf("rename record should not be present here")
-		case record.TransferIn, record.TransferOut, record.CashIn, record.CashOut, record.Dividend:
-			log.Warningf("transfer/cash/dividend record passed to holidngs which groups by ticker and not account, this record has no implications: %v", r)
-			continue
 		case record.Buy:
 			// if this buy has been exhausted then just continue
 			if math.Abs(r.ShareCount-0.0) < epsilon {
@@ -213,6 +208,8 @@ func calculateInternal(ticker string, recordsOrig []*record.Record) (*Holding, e
 			if err := handleSell(poolActive, records, i, debug); err != nil {
 				return nil, fmt.Errorf("cannot handle SELL: %v", err)
 			}
+		default:
+			return nil, fmt.Errorf("invalid record type passed: %v", r.Action)
 		}
 	}
 	return &Holding{
@@ -228,7 +225,12 @@ func calculateInternal(ticker string, recordsOrig []*record.Record) (*Holding, e
 func ByTicker(records []*record.Record) (map[string]*Holding, error) {
 	var byTicker map[string][]*record.Record = make(map[string][]*record.Record)
 	for _, r := range records {
-		byTicker[r.Ticker] = append(byTicker[r.Ticker], r)
+		switch r.Action {
+		case record.Rename, record.TransferIn, record.TransferOut, record.CashIn, record.CashOut, record.Dividend:
+			continue
+		default:
+			byTicker[r.Ticker] = append(byTicker[r.Ticker], r)
+		}
 	}
 	var keys = maps.Keys(byTicker)
 	sort.Strings(keys)

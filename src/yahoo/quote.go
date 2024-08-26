@@ -40,14 +40,14 @@ type ResponseQuote struct {
 	MarketCap                  ResponseFieldFloat  `json:"marketCap"`
 }
 
-func (r *ResponseQuote) Price() float64 {
+func (r *ResponseQuote) price() float64 {
 	if r == nil {
 		return 0.0
 	}
 	return r.RegularMarketPrice.Raw
 }
 
-func (r *ResponseQuote) TodayPercentChange() float64 {
+func (r *ResponseQuote) todayPercentChange() float64 {
 	if r == nil {
 		return 0.0
 	}
@@ -82,8 +82,8 @@ type SearchResponse struct {
 	Error  interface{}   `json:"error"`
 }
 
-// GetQuote issues a HTTP request to retrieve quote from the API and process the response
-func GetQuote(client *resty.Client, symbol string) (*ResponseQuote, error) {
+// getQuote issues a HTTP request to retrieve quote from the API and process the response
+func getQuote(client *resty.Client, symbol string) (*ResponseQuote, error) {
 	res, _ := client.R().
 		SetResult(Response{}).
 		SetQueryParam("fields", "shortName,regularMarketChange,regularMarketChangePercent,regularMarketPrice,regularMarketPreviousClose,regularMarketOpen,regularMarketDayRange,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,postMarketChange,postMarketChangePercent,postMarketPrice,preMarketChange,preMarketChangePercent,preMarketPrice,fiftyTwoWeekHigh,fiftyTwoWeekLow,marketCap").
@@ -103,7 +103,7 @@ func firstQuote(res *resty.Response) (*ResponseQuote, error) {
 	}
 	return &resp.QuoteResponse.Quotes[0], nil
 }
-func Search(client *resty.Client, query string) (*SearchQuote, error) {
+func search(client *resty.Client, query string) (*SearchQuote, error) {
 	res, _ := client.R().
 		SetResult(SearchResponse{}).
 		SetQueryParam("q", query).

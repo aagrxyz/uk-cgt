@@ -7,11 +7,9 @@ import (
 	"time"
 
 	"aagr.xyz/trades/db"
+	"aagr.xyz/trades/marketdata"
 	"aagr.xyz/trades/record"
-	"aagr.xyz/trades/yahoo"
-	"github.com/go-resty/resty/v2"
 	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jellydator/ttlcache/v3"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
@@ -21,77 +19,23 @@ var tf = func(val interface{}) string {
 	return fmt.Sprintf("%.2f", val)
 }
 
-func priceAndDayChange(ticker string, yahooClient *resty.Client) (float64, float64) {
+func presentQuote(ticker string, market *marketdata.Service) (*marketdata.Quote, error) {
 	meta, err := db.TickerMeta(ticker)
 	if err != nil {
-		log.Warningf("Cannot get the yahoo ticker for %s, so using 0 present value: %v", ticker, err)
-		return 0.0, 0.0
+		return nil, fmt.Errorf("cannot get the metadata for ticker %s: %v", ticker, err)
 	}
-	if meta.AssetType == db.ForexType {
-		return presentForex(record.NewCurrency(ticker), yahooClient), 0.0
+	if meta.AssetType == record.FOREX_ASSET {
+		return presentForex(record.NewCurrency(ticker), market)
 	}
-	quote, err := yahoo.GetQuote(yahooClient, meta.YahooTicker)
-	if err != nil {
-		log.Warningf("Cannot get price from yahoo for ticker %s: %v", meta.YahooTicker, err)
-		return 0.0, 0.0
-	}
-	if quote.Currency != meta.YahooCurrency {
-		log.Warningf("Stored yahoo ticker currency is different from present value in quote (stored:%s, got:%s)", meta.YahooCurrency, quote.Currency)
-		return 0.0, 0.0
-	}
-	// Handle different types of currencies i.e. GBP and GBX bull-shit
-	if quote.Currency == "GBp" {
-		if record.NewCurrency(meta.Currency) == record.GBX {
-			return quote.Price(), quote.TodayPercentChange()
-		}
-		if record.NewCurrency(meta.Currency) == record.GBP {
-			return quote.Price() / 100.0, quote.TodayPercentChange()
-		}
-	}
-	if quote.Currency == "GBP" {
-		if record.NewCurrency(meta.Currency) == record.GBP {
-			return quote.Price(), quote.TodayPercentChange()
-		}
-		if record.NewCurrency(meta.Currency) == record.GBX {
-			return quote.Price() * 100.0, quote.TodayPercentChange()
-		}
-	}
-	// If it is any other currency typically USD, EUR, INR - this will be correct and match the ticker currency
-	if record.NewCurrency(quote.Currency) != record.NewCurrency(meta.Currency) {
-		log.Warningf("The currencies should match for ticker %s, but did not (got=%s, want=%s)", ticker, quote.Currency, meta.Currency)
-		return 0.0, 0.0
-	}
-	return quote.Price(), quote.TodayPercentChange()
+	return market.GetQuote(ticker, meta.Currency, meta.Metadata)
 }
 
-var cachedForex *ttlcache.Cache[record.Currency, float64]
-
-func init() {
-	cachedForex = ttlcache.New[record.Currency, float64](
-		ttlcache.WithTTL[record.Currency, float64](10 * time.Minute),
-	)
-	go cachedForex.Start()
-}
-
-func presentForex(currency record.Currency, yahooClient *resty.Client) float64 {
-	switch currency {
-	case record.GBP:
-		return 1.0
-	case record.GBX:
-		return 0.01
-	}
-	if cachedForex.Has(currency) {
-		return cachedForex.Get(currency).Value()
-	}
-	symbol := fmt.Sprintf("%sGBP=X", currency)
-	quote, err := yahoo.GetQuote(yahooClient, symbol)
+func presentForex(currency record.Currency, market *marketdata.Service) (*marketdata.Quote, error) {
+	price, err := market.GetForex(currency)
 	if err != nil {
-		log.Warningf("cannot get forex for today for symbol %s from yahoo finance: %v", symbol, err)
-		return 0.0
+		return nil, err
 	}
-	price := quote.Price()
-	cachedForex.Set(currency, price, ttlcache.DefaultTTL)
-	return price
+	return &marketdata.Quote{RegularMarketPrice: price}, nil
 }
 
 func assetType(ticker string) string {
@@ -101,8 +45,8 @@ func assetType(ticker string) string {
 		log.Errorf("Cannot get metadata about ticker, so setting type as N/A")
 		return "N/A"
 	}
-	res = meta.AssetType
-	if res == "ETF" && meta.ETFType != "" {
+	res = string(meta.AssetType)
+	if meta.AssetType == record.ETF_ASSET && meta.ETFType != "" {
 		res = meta.ETFType
 	}
 	if ticker == "GOOGL" || ticker == "GOOG" {
@@ -111,7 +55,7 @@ func assetType(ticker string) string {
 	return res
 }
 
-func AccountRows(byAccount map[record.Account]*Account, yahooClient *resty.Client) map[record.Account][]*TickerRow {
+func AccountRows(byAccount map[record.Account]*Account, market *marketdata.Service) (map[record.Account][]*TickerRow, error) {
 	res := make(map[record.Account][]*TickerRow)
 	for name, act := range byAccount {
 		var actRows []*TickerRow
@@ -119,33 +63,39 @@ func AccountRows(byAccount map[record.Account]*Account, yahooClient *resty.Clien
 			if math.Abs(pos.quantity-0.0) <= epsilon {
 				continue
 			}
-			price, dayChange := priceAndDayChange(ticker, yahooClient)
+			quote, err := presentQuote(ticker, market)
+			if err != nil {
+				return nil, fmt.Errorf("cannot get quote: %v", err)
+			}
 			meta, err := db.TickerMeta(ticker)
 			if err != nil {
-				log.Errorf("Cannot get metadata about ticker %s: %v", ticker, err)
+				return nil, fmt.Errorf("cannot get metadata about ticker %s: %v", ticker, err)
 			}
-			forex := presentForex(record.Currency(meta.Currency), yahooClient)
+			forex, err := presentForex(record.Currency(meta.Currency), market)
+			if err != nil {
+				return nil, fmt.Errorf("cannot get present forex: %v", err)
+			}
 			assetType := assetType(ticker)
 			// This is incorrect as we are using present forex rather than the forex at which we bought it
 			// TODO(aagr): Fix this
 			gbpPos := &position{
 				quantity:  pos.quantity,
-				totalCost: pos.totalCost * forex,
+				totalCost: pos.totalCost * forex.RegularMarketPrice,
 			}
 			tr := &TickerRow{
 				Name:             ticker,
 				AssetType:        assetType,
-				Currency:         meta.Currency,
+				Currency:         string(meta.Currency),
 				Quantity:         pos.quantity,
-				Forex:            forex,
-				BasePriceMetrics: NewPriceMetrics(pos, price, dayChange),
-				GBPPriceMetrics:  NewPriceMetrics(gbpPos, price*forex, dayChange),
+				Forex:            forex.RegularMarketPrice,
+				BasePriceMetrics: NewPriceMetrics(pos, quote.RegularMarketPrice, quote.TodayPercentChange),
+				GBPPriceMetrics:  NewPriceMetrics(gbpPos, quote.RegularMarketPrice*forex.RegularMarketPrice, quote.TodayPercentChange),
 			}
 			actRows = append(actRows, tr)
 		}
 		res[name] = actRows
 	}
-	return res
+	return res, nil
 }
 
 func accountTable(act record.Account, rows []*TickerRow) table.Writer {
@@ -190,13 +140,16 @@ func accountTable(act record.Account, rows []*TickerRow) table.Writer {
 	return t
 }
 
-func AccountTable(byAccount map[record.Account]*Account, yahooClient *resty.Client) map[record.Account]table.Writer {
-	actRows := AccountRows(byAccount, yahooClient)
+func AccountTable(byAccount map[record.Account]*Account, market *marketdata.Service) (map[record.Account]table.Writer, error) {
+	actRows, err := AccountRows(byAccount, market)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get account rows: %v", err)
+	}
 	var res = make(map[record.Account]table.Writer)
 	for act, rows := range actRows {
 		res[act] = accountTable(act, rows)
 	}
-	return res
+	return res, nil
 }
 
 type PriceMetrics struct {
@@ -232,24 +185,31 @@ type TickerRow struct {
 	GBPPriceMetrics  PriceMetrics
 }
 
-func PortfolioRows(holdings map[string]*Holding, yahooClient *resty.Client) []*TickerRow {
+func PortfolioRows(holdings map[string]*Holding, market *marketdata.Service) ([]*TickerRow, error) {
 	var res []*TickerRow
 	for ticker, h := range holdings {
-		price, dayChange := priceAndDayChange(ticker, yahooClient)
-		forex := presentForex(h.currency, yahooClient)
+		quote, err := presentQuote(ticker, market)
+		if err != nil {
+			return nil, fmt.Errorf("cannot get quote: %v", err)
+		}
+		forex, err := presentForex(h.currency, market)
+		if err != nil {
+			return nil, fmt.Errorf("cannot get forex: %v", err)
+		}
 		assetType := assetType(ticker)
 		baseRec := TickerRow{
 			Name:      ticker,
 			AssetType: assetType,
 			Currency:  string(h.currency),
-			Forex:     forex,
+			Forex:     forex.RegularMarketPrice,
 		}
+		price, dayChange := quote.RegularMarketPrice, quote.TodayPercentChange
 		if math.Abs(h.taxable.gbp.quantity-0.0) > epsilon {
 			tax := baseRec
 			tax.Taxable = "Y"
 			tax.Quantity = h.taxable.base.quantity
 			tax.BasePriceMetrics = NewPriceMetrics(h.taxable.base, price, dayChange)
-			tax.GBPPriceMetrics = NewPriceMetrics(h.taxable.gbp, price*forex, dayChange)
+			tax.GBPPriceMetrics = NewPriceMetrics(h.taxable.gbp, price*forex.RegularMarketPrice, dayChange)
 			res = append(res, &tax)
 		}
 		if math.Abs(h.cgtExempt.gbp.quantity-0.0) > epsilon {
@@ -257,15 +217,15 @@ func PortfolioRows(holdings map[string]*Holding, yahooClient *resty.Client) []*T
 			exempt.Taxable = "N"
 			exempt.Quantity = h.cgtExempt.base.quantity
 			exempt.BasePriceMetrics = NewPriceMetrics(h.cgtExempt.base, price, dayChange)
-			exempt.GBPPriceMetrics = NewPriceMetrics(h.cgtExempt.gbp, price*forex, dayChange)
+			exempt.GBPPriceMetrics = NewPriceMetrics(h.cgtExempt.gbp, price*forex.RegularMarketPrice, dayChange)
 			res = append(res, &exempt)
 		}
 	}
-	return res
+	return res, nil
 }
 
 // Portfolio prints a report for the open positions
-func PortfolioTable(holdings map[string]*Holding, yahooClient *resty.Client) table.Writer {
+func PortfolioTable(holdings map[string]*Holding, market *marketdata.Service) (table.Writer, error) {
 	var totalCost, presentValue float64
 	t := table.NewWriter()
 	rowConfigAutoMerge := table.RowConfig{AutoMerge: true}
@@ -292,7 +252,10 @@ func PortfolioTable(holdings map[string]*Holding, yahooClient *resty.Client) tab
 	t.SortBy([]table.SortBy{
 		{Number: 1},
 	})
-	rows := PortfolioRows(holdings, yahooClient)
+	rows, err := PortfolioRows(holdings, market)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get portfolio rows: %v", err)
+	}
 	for _, r := range rows {
 		t.AppendRow(table.Row{
 			r.Name,
@@ -315,7 +278,7 @@ func PortfolioTable(holdings map[string]*Holding, yahooClient *resty.Client) tab
 	t.AppendFooter(table.Row{
 		"", "", "", "", "", "", "", "", totalCost, "", "", "", presentValue,
 	})
-	return t
+	return t, nil
 }
 
 // CGT returns a string containing report for CGT along with a debug string

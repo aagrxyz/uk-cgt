@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"os"
@@ -8,6 +8,23 @@ import (
 )
 
 const logTimeFormatString = "Mon Jan _2 15:04:05 2006"
+
+type ExecutionMode int
+
+const (
+	INTERACTIVE_MODE ExecutionMode = iota
+	SERVER_MODE
+)
+
+var mode = INTERACTIVE_MODE
+
+func Mode() ExecutionMode {
+	return mode
+}
+
+func SetMode(m ExecutionMode) {
+	mode = m
+}
 
 func init() {
 	formatter := new(prefixed.TextFormatter)

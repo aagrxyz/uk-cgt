@@ -171,7 +171,10 @@ func (p *defaultParser) divdendRecord(contents []string) ([]*record.Record, erro
 	// fillup currency
 	r.Currency = record.NewCurrency(contents[9])
 	r.PricePerShare = 1.0
-	r.ExchangeRate = db.GetForex(r.Timestamp, string(r.Currency))
+	r.ExchangeRate, err = db.GetForex(r.Timestamp, r.Currency)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get forex: %v", err)
+	}
 	r.Total = r.ShareCount * r.PricePerShare * r.ExchangeRate
 	return []*record.Record{r}, nil
 }

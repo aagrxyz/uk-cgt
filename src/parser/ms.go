@@ -59,7 +59,10 @@ func (p *msVestParser) ToRecord(contents []string) ([]*record.Record, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot parse price %s: %v", price, err)
 	}
-	r.ExchangeRate = db.GetForex(r.Timestamp, string(r.Currency))
+	r.ExchangeRate, err = db.GetForex(r.Timestamp, r.Currency)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get forex: %v", err)
+	}
 	r.Total = r.PricePerShare * r.ShareCount * r.ExchangeRate
 	return []*record.Record{r, p.cashInRecord(r)}, nil
 }
@@ -126,7 +129,10 @@ func (p *msWithdrawlParser) transferRecord(contents []string) ([]*record.Record,
 	if err != nil {
 		return nil, fmt.Errorf("cannot parse price %s: %v", price, err)
 	}
-	out.ExchangeRate = db.GetForex(out.Timestamp, string(record.USD))
+	out.ExchangeRate, err = db.GetForex(out.Timestamp, record.USD)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get USD exchange rate: %v", err)
+	}
 	out.Total = out.PricePerShare * out.ShareCount * out.ExchangeRate
 	in := *out
 	in.Broker = p.transferAccount
@@ -184,7 +190,10 @@ func (p *msWithdrawlParser) gsuRecord(contents []string) ([]*record.Record, erro
 	r.Commission = (r.ShareCount * r.PricePerShare) - r.Total
 	cashR.ShareCount = r.Total
 
-	r.ExchangeRate = db.GetForex(r.Timestamp, string(record.USD))
+	r.ExchangeRate, err = db.GetForex(r.Timestamp, record.USD)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get USD forex rate: %v", err)
+	}
 	cashR.PricePerShare = 1.0
 	cashR.Total = cashR.ShareCount * cashR.PricePerShare * r.ExchangeRate
 	cashR.ExchangeRate = r.ExchangeRate

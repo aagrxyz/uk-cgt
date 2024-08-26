@@ -6,36 +6,31 @@ import (
 	"os"
 	"path"
 	"sort"
-	"strings"
 
-	"aagr.xyz/trades/yahoo"
-	"github.com/go-resty/resty/v2"
+	"aagr.xyz/trades/marketdata"
+	"aagr.xyz/trades/record"
 	"github.com/lithammer/fuzzysearch/fuzzy"
 	log "github.com/sirupsen/logrus"
 )
 
 const symbolJSONFilename = "outputs/symbols_db.json"
 
-const ForexType = "FOREX"
-
 // Symbol stores metadata about a ticker
 type Symbol struct {
-	Names         []string `json:"names"`
-	Exchange      string   `json:"exchange"`
-	YahooTicker   string   `json:"yahoo_ticker"`
-	YahooCurrency string   `json:"yahoo_currency"`
-	AssetType     string   `json:"asset_type"`
-	ETFType       string   `json:"etf_type"`
-	Currency      string   `json:"currency"`
+	Names     []string         `json:"names"`
+	Currency  record.Currency  `json:"currency"`
+	AssetType record.AssetType `json:"asset_type"`
+	ETFType   string           `json:"etf_type"`
+
+	Metadata map[marketdata.Source]*marketdata.SourceMetadata `json:"source_metadata"`
 }
 
-// symbols stores a map from ticker id to the various names it has.
-var symbols map[string]*Symbol
-
-// symbolsRenamed stored which symbols are renamed to which. It stores a disjoint set union.
-var symbolsRenamed map[string]string
-
-var yahooClient *resty.Client
+var (
+	// symbols stores a map from ticker id to the various names it has.
+	symbols map[string]*Symbol
+	// symbolsRenamed stored which symbols are renamed to which. It stores a disjoint set union.
+	symbolsRenamed map[string]string
+)
 
 // initSymbols is called to get the db initialized. If no file exists, it creates a new file.
 func initSymbols(rootDir string) {
@@ -65,56 +60,6 @@ func serializeSymbols(rootDir string) error {
 	return nil
 }
 
-func insertTickerName(ticker string, name string) {
-	if _, ok := symbols[ticker]; !ok {
-		symbols[ticker] = &Symbol{}
-	}
-	for _, x := range symbols[ticker].Names {
-		if name == x {
-			return
-		}
-	}
-	symbols[ticker].Names = append(symbols[ticker].Names, name)
-	sort.Sort(sort.StringSlice(symbols[ticker].Names))
-}
-
-func getNameOfTicker(ticker string) (string, error) {
-	resp, err := yahoo.Search(yahooClient, ticker)
-	if err == nil && resp.ShortName != "" {
-		return resp.ShortName, nil
-	}
-	log.Warningf("Error in fetching name from yahoo finance: %v", err)
-	manual, err := getInput(fmt.Sprintf("Cannot get name for ticker %s, Please enter manually", ticker))
-	if err != nil {
-		return "", err
-	}
-	return manual, nil
-}
-
-// AddTickerName adds a ticker to the DB, if the name is not set, then it is asked to be entered manually
-func AddTickerName(ticker string, name string) error {
-	if name == "" {
-		manual, err := getNameOfTicker(ticker)
-		if err != nil {
-			return err
-		}
-		name = manual
-	}
-	insertTickerName(ticker, name)
-	return nil
-}
-
-// TickerName returns the name of the ticker.
-// If it is not present, a new entry is created
-func TickerName(ticker string) (string, error) {
-	if _, ok := symbols[ticker]; !ok {
-		if err := AddTickerName(ticker, ""); err != nil {
-			return "", fmt.Errorf("cannot add ticker to db: %v", err)
-		}
-	}
-	return symbols[ticker].Names[0], nil
-}
-
 // TickerMeta returns the metadata about a ticker
 func TickerMeta(ticker string) (*Symbol, error) {
 	ticker = MostRecentTicker(ticker)
@@ -126,8 +71,7 @@ func TickerMeta(ticker string) (*Symbol, error) {
 }
 
 // SetCurrency sets the currency from records to the db
-func SetCurrency(ticker, currency string) error {
-	currency = strings.ToUpper(currency)
+func SetCurrency(ticker string, currency record.Currency) error {
 	meta, ok := symbols[ticker]
 	if !ok {
 		return fmt.Errorf("ticker not added before")
@@ -137,14 +81,46 @@ func SetCurrency(ticker, currency string) error {
 	}
 	meta.Currency = currency
 	// This only happens in forex records
-	if ticker == currency {
-		meta.AssetType = ForexType
+	if ticker == string(currency) {
+		meta.AssetType = record.FOREX_ASSET
 	}
 	return nil
 }
 
-// GuessTickerFromName tries to identify the ticker for a given name
-func GuessTickerFromName(name string) (string, error) {
+func insertTickerName(ticker string, name string) error {
+	if _, ok := symbols[ticker]; !ok {
+		symbols[ticker] = &Symbol{}
+	}
+	if name == "" {
+		manual, err := getNameOfTicker(ticker)
+		if err != nil {
+			return err
+		}
+		name = manual
+	}
+	for _, x := range symbols[ticker].Names {
+		if name == x {
+			return nil
+		}
+	}
+	symbols[ticker].Names = append(symbols[ticker].Names, name)
+	sort.Sort(sort.StringSlice(symbols[ticker].Names))
+	return nil
+}
+
+// TickerName returns the name of the ticker.
+// If it is not present, a new entry is created
+func TickerName(ticker string) (string, error) {
+	if _, ok := symbols[ticker]; !ok {
+		if err := insertTickerName(ticker, ""); err != nil {
+			return "", fmt.Errorf("cannot add ticker to db: %v", err)
+		}
+	}
+	return symbols[ticker].Names[0], nil
+}
+
+// guessTickerFromName tries to identify the ticker for a given name
+func guessTickerFromName(name string) (string, error) {
 	var data []string
 	var inverseMap map[string]string = make(map[string]string)
 	for ticker, meta := range symbols {
@@ -164,7 +140,7 @@ func GuessTickerFromName(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	AddTickerName(manual, name)
+	insertTickerName(manual, name)
 	return manual, nil
 }
 
@@ -182,56 +158,73 @@ func MostRecentTicker(ticker string) string {
 	return MostRecentTicker(new)
 }
 
-// EnrichFromYahoo queries yahoo finance and updates the metadata.
-func EnrichFromYahoo() error {
-	for ticker, meta := range symbols {
-		if MostRecentTicker(ticker) != ticker {
-			// This ticker is renamed, so no point storing stuff for it
-			continue
-		}
-		// Do not play around with forex
-		if meta.AssetType == ForexType {
-			continue
-		}
-		symbol := meta.YahooTicker
-		if symbol == "" {
-			symbol = ticker
-			if strings.HasPrefix(meta.Currency, "GB") {
-				symbol += ".L"
-			}
-			if meta.Currency == "CHF" {
-				symbol += ".SW"
-			}
-		}
-		if err := fillMetaFromYahoo(symbol, meta, yahooClient); err != nil {
-			return err
-		}
+// Function that modifies the record
+func FillTickerOrName(r *record.Record) error {
+	if r.Ticker == "" && r.Name == "" {
+		return fmt.Errorf("both name and ticker are empty")
 	}
+	var err error
+	if r.Ticker != "" && r.Name == "" {
+		err = fillName(r)
+	}
+	if r.Name != "" && r.Ticker == "" {
+		err = fillTicker(r)
+	}
+	if err != nil {
+		return err
+	}
+	insertTickerName(r.Ticker, r.Name)
 	return nil
 }
 
-func fillMetaFromYahoo(symbol string, meta *Symbol, yahooClient *resty.Client) error {
-	success := false
-	var fetchErr error
-	for i := 0; i < 2; i++ {
-		quote, err := yahoo.GetQuote(yahooClient, symbol)
-		if err == nil {
-			meta.YahooTicker = symbol
-			meta.Exchange = quote.ExchangeName
-			meta.AssetType = quote.QuoteType
-			meta.YahooCurrency = quote.Currency
-			success = true
-			break
-		}
-		manual, err := getInput(fmt.Sprintf("Cannot determine yahoo finance symbol for ticker %s. Enter Manually:", symbol))
-		if err != nil {
-			return err
-		}
-		symbol = manual
-		fetchErr = err
+func fillName(r *record.Record) error {
+	name, err := TickerName(r.Ticker)
+	if err != nil {
+		return err
 	}
-	if !success {
-		return fmt.Errorf("cannot fill data from yahoo finance, latest fetch err: %v", fetchErr)
+	r.Name = name
+	return nil
+}
+
+func fillTicker(r *record.Record) error {
+	ticker, err := guessTickerFromName(r.Name)
+	if err != nil {
+		return err
+	}
+	r.Ticker = ticker
+	return nil
+}
+
+// Market data functions
+func getNameOfTicker(ticker string) (string, error) {
+	// resp, err := marketdata.Search(ticker)
+	// if err == nil && resp.ShortName != "" {
+	// 	return resp.ShortName, nil
+	// }
+	// log.Warningf("Error in fetching name from yahoo finance: %v", err)
+	manual, err := getInput(fmt.Sprintf("Cannot get name for ticker %s, Please enter manually", ticker))
+	if err != nil {
+		return "", err
+	}
+	return manual, nil
+}
+
+// EnrichFromMarket queries yahoo finance and updates the metadata.
+func EnrichFromMarket(md *marketdata.Service) error {
+	for ticker, meta := range symbols {
+		// This ticker is renamed, so no point storing stuff for it
+		if MostRecentTicker(ticker) != ticker {
+			continue
+		}
+		// Do not play around with forex
+		if meta.AssetType == record.FOREX_ASSET {
+			continue
+		}
+		mds, err := md.Metadata(ticker, meta.Currency, meta.Metadata)
+		if err != nil {
+			return fmt.Errorf("cannot enrich from market: %v", err)
+		}
+		meta.Metadata = mds
 	}
 	return nil
 }

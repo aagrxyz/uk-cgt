@@ -32,6 +32,13 @@ spec:
             - "--config_file=/var/finances/configs/config.textproto"
             - "--root_dir=/var/finances/data/"
             - "--static_dir=/finances/static"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 7777
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 10
           envFrom:
             - secretRef:
                 name: finances-secret

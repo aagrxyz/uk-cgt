@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"aagr.xyz/trades/db"
 	"aagr.xyz/trades/proto/statementspb"
 )
 
@@ -169,6 +168,15 @@ func NewCurrency(s string) Currency {
 	return ""
 }
 
+type AssetType string
+
+const (
+	UNKNOWN_ASSET AssetType = ""
+	EQUITY_ASSET  AssetType = "EQUITY"
+	FOREX_ASSET   AssetType = "FOREX"
+	ETF_ASSET     AssetType = "ETF"
+)
+
 // Account stores information about the account aka broker where something happened
 type Account struct {
 	// If Name is set to "*", it implies a global event like a stock split or rename of ticker.
@@ -262,31 +270,7 @@ func (r *Record) MarshalCSV() []string {
 	}
 }
 
-func (r *Record) ValidateAndEnrich() error {
-	// Let's store everything in GBP
-	if r.Currency == GBX {
-		r.PricePerShare /= 100.0
-		r.Currency = GBP
-		r.ExchangeRate = 1.0
-	}
-	currency := r.Currency
-	if err := r.assertMaths(); err != nil {
-		return fmt.Errorf("cannot assert the maths for the record (record = %s): %v", r.String(), err)
-	}
-	if err := r.fillTickerOrName(); err != nil {
-		return fmt.Errorf("cannot fill ticker or name (record= %s): %v", r.String(), err)
-	}
-	// If it is not a buy or sell transaction, then don't fiddle around with currency
-	if !(r.Action == Sell || r.Action == Buy) {
-		return nil
-	}
-	if err := db.SetCurrency(r.Ticker, string(currency)); err != nil {
-		return fmt.Errorf("cannot set currency of the ticker (record = %s): %v", r.String(), err)
-	}
-	return nil
-}
-
-func (r *Record) assertMaths() error {
+func (r *Record) AssertMaths() error {
 	want := (r.ShareCount * r.PricePerShare * r.ExchangeRate)
 	switch r.Action {
 	case Buy:
@@ -297,41 +281,5 @@ func (r *Record) assertMaths() error {
 	if math.Abs(want-r.Total) > 0.1 {
 		return fmt.Errorf("record's total price differs %s, want: %f got: %f", r, want, r.Total)
 	}
-	return nil
-}
-
-func (r *Record) fillTickerOrName() error {
-	if r.Ticker == "" && r.Name == "" {
-		return fmt.Errorf("both name and ticker are empty")
-	}
-	var err error
-	if r.Ticker != "" && r.Name == "" {
-		err = r.fillName()
-	}
-	if r.Name != "" && r.Ticker == "" {
-		err = r.fillTicker()
-	}
-	if err != nil {
-		return err
-	}
-	db.AddTickerName(r.Ticker, r.Name)
-	return nil
-}
-
-func (r *Record) fillName() error {
-	name, err := db.TickerName(r.Ticker)
-	if err != nil {
-		return err
-	}
-	r.Name = name
-	return nil
-}
-
-func (r *Record) fillTicker() error {
-	ticker, err := db.GuessTickerFromName(r.Name)
-	if err != nil {
-		return err
-	}
-	r.Ticker = ticker
 	return nil
 }

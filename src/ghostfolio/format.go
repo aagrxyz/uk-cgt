@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"aagr.xyz/trades/db"
+	"aagr.xyz/trades/marketdata"
 	"aagr.xyz/trades/record"
 	log "github.com/sirupsen/logrus"
 )
@@ -49,6 +50,7 @@ func ToActivities(recordsOrig []*record.Record) (*Activities, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Cannot get metadata of the ticker %s: %v", r.Ticker, err)
 		}
+		yticker := symbol.Metadata[marketdata.YAHOO].Ticker
 		switch r.Action {
 		case record.Unknown, record.Rename, record.Dividend, record.CashIn, record.CashOut:
 			log.Warningf("Invalid type record: %v, skipping", r)
@@ -62,7 +64,7 @@ func ToActivities(recordsOrig []*record.Record) (*Activities, error) {
 			}
 			activities[a.Symbol] = append(activities[a.Symbol], a)
 		case record.Split:
-			if err := handleSplit(activities[symbol.YahooTicker], r.Description); err != nil {
+			if err := handleSplit(activities[yticker], r.Description); err != nil {
 				return nil, fmt.Errorf("cannot handle split: %v", r)
 			}
 		case record.TransferIn:
@@ -72,7 +74,7 @@ func ToActivities(recordsOrig []*record.Record) (*Activities, error) {
 			if err != nil {
 				return nil, fmt.Errorf("cannot handle transfer transaction: %v", err)
 			}
-			activities[symbol.YahooTicker] = append(activities[symbol.YahooTicker], acts...)
+			activities[yticker] = append(activities[yticker], acts...)
 		}
 	}
 	var res []*Activity
@@ -118,7 +120,7 @@ func handleTransfer(r *record.Record, meta *db.Symbol) ([]*Activity, error) {
 }
 
 func toActivity(r *record.Record, meta *db.Symbol) (*Activity, error) {
-	if meta.AssetType == db.ForexType {
+	if meta.AssetType == record.FOREX_ASSET {
 		log.Warningf("Ignoring transaction for forex: %v", r)
 		return nil, nil
 	}
@@ -137,14 +139,15 @@ func toActivity(r *record.Record, meta *db.Symbol) (*Activity, error) {
 	}
 	a.Symbol = r.Ticker
 	a.Currency = string(r.Currency)
+	yMeta := meta.Metadata[marketdata.YAHOO]
 
-	if meta != nil && meta.YahooTicker != "" {
-		a.Symbol = meta.YahooTicker
+	if meta != nil && yMeta != nil && yMeta.Ticker != "" {
+		a.Symbol = meta.Metadata[marketdata.YAHOO].Ticker
 	}
-	if meta != nil && meta.YahooCurrency != "" {
-		a.Currency = meta.YahooCurrency
+	if meta != nil && yMeta.Currency != "" {
+		a.Currency = string(yMeta.Currency)
 	}
-	conversion, err := conversionFactor(meta.YahooCurrency, string(r.Currency))
+	conversion, err := conversionFactor(string(yMeta.Currency), string(r.Currency))
 	if err != nil {
 		return nil, err
 	}

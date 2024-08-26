@@ -26,18 +26,18 @@ var prehook resty.PreRequestHook = func(c *resty.Client, r *http.Request) error 
 	return nil
 }
 
-func New(clientMain *resty.Client, clientSession *resty.Client) *resty.Client {
+func newClient(clientMain *resty.Client, clientSession *resty.Client) *resty.Client {
 	session := clientSession.SetLogger(log.StandardLogger()).
-		SetPreRequestHook(prehook).
+		// SetPreRequestHook(prehook).
 		OnAfterResponse(func(c *resty.Client, r *resty.Response) error {
-			log.Infof("headers in session refresh: %v", r.Header())
-			log.Infof("cookies in session refresh: %v", r.Cookies())
-			log.Infof("status in session refresh: %v", r.StatusCode())
+			// log.Infof("headers in session refresh: %v", r.Header())
+			// log.Infof("cookies in session refresh: %v", r.Cookies())
+			// log.Infof("status in session refresh: %v", r.StatusCode())
 			return nil
 		})
 
 	client := clientMain.
-		SetPreRequestHook(prehook).
+		// SetPreRequestHook(prehook).
 		SetLogger(log.StandardLogger()).
 		SetBaseURL("https://query1.finance.yahoo.com").
 		SetHeader("authority", "query1.finance.yahoo.com").
@@ -59,19 +59,19 @@ func New(clientMain *resty.Client, clientSession *resty.Client) *resty.Client {
 		AddRetryAfterErrorCondition().
 		SetRetryCount(1).
 		OnAfterResponse(func(c *resty.Client, r *resty.Response) error {
-			log.Infof("headers in query: %v", r.Header())
+			// log.Infof("headers in query: %v", r.Header())
+			// log.Infof("cookies in query: %v", r.Cookies())
+			// log.Infof("status in query: %v", r.StatusCode())
 			if r.IsError() {
 				log.Errorf("error in query: %v", r.String())
-				return RefreshSession(c, session)
+				return refreshSession(c, session)
 			}
 			return nil
 		})
-
 	return client
-
 }
 
-func RefreshSession(clientMain *resty.Client, clientSession *resty.Client) error {
+func refreshSession(clientMain *resty.Client, clientSession *resty.Client) error {
 	var err error
 	var cookies []*http.Cookie
 	var crumb string
