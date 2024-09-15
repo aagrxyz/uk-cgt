@@ -52,10 +52,11 @@ func (p *defaultParser) ToRecord(contents []string) ([]*record.Record, error) {
 		return nil, fmt.Errorf("cannot get record account: %v", err)
 	}
 	r := &record.Record{
-		Broker: *account,
-		Action: action,
-		Ticker: contents[5],
-		Name:   contents[6],
+		Broker:      *account,
+		Action:      action,
+		Ticker:      contents[5],
+		Name:        contents[6],
+		Description: contents[13],
 	}
 	// fill up timestamp
 	r.Timestamp, err = time.Parse(timeFmt, contents[0])
@@ -131,9 +132,10 @@ func (p *defaultParser) cashRecord(contents []string) ([]*record.Record, error) 
 		return nil, fmt.Errorf("cannot get account for record: %v", err)
 	}
 	r := &record.Record{
-		Broker: *account,
-		Action: record.NewTransactionType(contents[4]),
-		Ticker: contents[5],
+		Broker:      *account,
+		Action:      record.NewTransactionType(contents[4]),
+		Ticker:      contents[5],
+		Description: contents[13],
 	}
 	// fill up timestamp
 	r.Timestamp, err = time.Parse(timeFmt, contents[0])
@@ -155,9 +157,10 @@ func (p *defaultParser) divdendRecord(contents []string) ([]*record.Record, erro
 		return nil, fmt.Errorf("cannot get account for record: %v", err)
 	}
 	r := &record.Record{
-		Broker: *account,
-		Action: record.NewTransactionType(contents[4]),
-		Ticker: contents[5],
+		Broker:      *account,
+		Action:      record.NewTransactionType(contents[4]),
+		Ticker:      contents[5],
+		Description: contents[13],
 	}
 	// fill up timestamp
 	r.Timestamp, err = time.Parse(timeFmt, contents[0])
