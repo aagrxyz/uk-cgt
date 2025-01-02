@@ -14,16 +14,6 @@ spec:
       labels:
         app: finances
     spec:
-      # affinity:
-      #   nodeAffinity:
-      #     preferredDuringSchedulingIgnoredDuringExecution:
-      #     - weight: 1
-      #       preference:
-      #         matchExpressions:
-      #         - key: storage
-      #           operator: In
-      #           values:
-      #             - seaweed
       containers:
         - name: finances
           args:
