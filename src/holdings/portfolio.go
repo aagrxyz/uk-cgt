@@ -24,8 +24,9 @@ func presentQuote(ticker string, market *marketdata.Service) (*marketdata.Quote,
 	if err != nil {
 		return nil, fmt.Errorf("cannot get the metadata for ticker %s: %v", ticker, err)
 	}
+	// A forex record is cash, so it's price in it's own currency is alwasy 1.0
 	if meta.AssetType == record.FOREX_ASSET {
-		return presentForex(record.NewCurrency(ticker), market)
+		return &marketdata.Quote{RegularMarketPrice: 1.0}, nil
 	}
 	return market.GetQuote(ticker, meta.Currency, meta.Metadata)
 }
