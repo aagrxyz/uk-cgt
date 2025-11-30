@@ -13,6 +13,8 @@ spec:
     metadata:
       labels:
         app: finances
+        storage/config: none
+        storage/data: seaweed
     spec:
       containers:
         - name: finances
