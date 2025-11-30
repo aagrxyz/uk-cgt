@@ -20,6 +20,10 @@ type position struct {
 	quantity, totalCost float64
 }
 
+func (p *position) String() string {
+	return fmt.Sprintf("qty=%f, totalCost=%f", p.quantity, p.totalCost)
+}
+
 func (p *position) averageCost() float64 {
 	if p.quantity == 0.0 {
 		return 0.0
@@ -160,8 +164,8 @@ func handleSell(poolActive *pool, records []*record.Record, presentIdx int, debu
 	}
 	// if more shares are left to be matched, use the pool
 	if toMatch > 0 {
-		if poolActive.gbp.quantity < toMatch {
-			return fmt.Errorf("invalid quantity remanining in the pool, want %v, got %v", toMatch, poolActive.gbp.quantity)
+		if poolActive.base.quantity < toMatch {
+			return fmt.Errorf("invalid quantity remanining in the pool, want %v, got %v", toMatch, poolActive.base.quantity)
 		}
 		cost := poolActive.gbp.averageCost() * toMatch
 		disposal := toMatch * (r.Total / r.ShareCount)
@@ -221,13 +225,41 @@ func calculateInternal(ticker string, recordsOrig []*record.Record) (*Holding, e
 	}, nil
 }
 
+func dividendBuyRec(div *record.Record) *record.Record {
+	if div.Currency == record.GBP || div.Currency == record.GBX {
+		return nil
+	}
+	return &record.Record{
+		Timestamp:     div.Timestamp,
+		Broker:        div.Broker,
+		Action:        record.Buy,
+		Ticker:        string(div.Currency),
+		Name:          string(div.Currency),
+		ShareCount:    div.ShareCount,
+		PricePerShare: 1.0,
+		Currency:      div.Currency,
+		ExchangeRate:  div.ExchangeRate,
+		Commission:    0.0,
+		Total:         div.Total,
+		Description:   fmt.Sprintf("buy for %s dividend", div.Ticker),
+	}
+}
+
 // ByTicker takes in the records and calculates the present holding situation based on a ticker
 func ByTicker(records []*record.Record) (map[string]*Holding, error) {
 	var byTicker map[string][]*record.Record = make(map[string][]*record.Record)
 	for _, r := range records {
 		switch r.Action {
-		case record.Rename, record.TransferIn, record.TransferOut, record.CashIn, record.CashOut, record.Dividend:
+		case record.Rename, record.TransferIn, record.TransferOut, record.CashIn, record.CashOut:
 			continue
+		case record.Dividend:
+			// Dividend in another currency is considered buy for that currency
+			buyR := dividendBuyRec(r)
+			if buyR != nil {
+				byTicker[buyR.Ticker] = append(byTicker[buyR.Ticker], buyR)
+			}
+		case record.WitholdingTax:
+			log.Fatal(fmt.Errorf("invalid witholding tax record %v", r))
 		default:
 			byTicker[r.Ticker] = append(byTicker[r.Ticker], r)
 		}

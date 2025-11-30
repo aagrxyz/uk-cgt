@@ -25,6 +25,7 @@ func (p *ibkrDividendParser) ValidateHeader(contents []string) error {
 		3: "FXRateToBase",
 		4: "Symbol",
 		5: "Amount",
+		7: "Type",
 	}
 	return headerMatches(want, contents)
 }
@@ -43,7 +44,7 @@ func (p *ibkrDividendParser) ToRecord(contents []string) ([]*record.Record, erro
 	r.Ticker = contents[4]
 	r.Currency = record.NewCurrency(contents[2])
 	if r.Currency == "" {
-		return nil, fmt.Errorf("invalid currecny type: %q", contents[2])
+		return nil, fmt.Errorf("invalid currency type: %q", contents[2])
 	}
 	r.ShareCount, err = strconv.ParseFloat(contents[5], 64)
 	if err != nil {
@@ -66,5 +67,8 @@ func (p *ibkrDividendParser) ToRecord(contents []string) ([]*record.Record, erro
 	// We use IBKR as authoritative source
 	db.AddForex(r.Timestamp, r.Currency, r.ExchangeRate)
 	r.Total = r.ShareCount * r.ExchangeRate * r.PricePerShare
+	if contents[7] == "Withholding Tax" {
+		r.Action = record.WitholdingTax
+	}
 	return []*record.Record{r}, nil
 }

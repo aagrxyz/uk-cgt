@@ -57,7 +57,7 @@ func accountInternal(act record.Account, records []*record.Record) (*Account, er
 		if !r.Timestamp.Truncate(24 * time.Hour).Equal(oldDate) {
 			for k, p := range a.positions {
 				if p.quantity < 0.0 {
-					return nil, fmt.Errorf("position %s became -ve on previous day: %f", k, p.quantity)
+					return nil, fmt.Errorf("position %s became -ve on previous day %v: %f", k, oldDate, p.quantity)
 				}
 			}
 		}
@@ -67,18 +67,15 @@ func accountInternal(act record.Account, records []*record.Record) (*Account, er
 		p := a.positions[r.Ticker]
 		switch r.Action {
 		case record.CashIn:
-			if act.Currency == record.GBP && r.Currency != record.GBP {
-				return nil, fmt.Errorf("cannot deposit %s to account %v", r.Currency, act)
+			// If account is not multiple currency, then only cash in and out is same currency
+			if act.Currency != record.MULTIPLE && act.Currency != r.Currency {
+				return nil, fmt.Errorf("cannot cashin %s to account %v", r.Currency, act)
 			}
-			p.buy(r.ShareCount, r.ShareCount)
-		case record.Dividend:
-			if act.Currency == record.GBP && r.Currency != record.GBP {
-				return nil, fmt.Errorf("cannot deposit dividend %s to account %v", r.Currency, act)
-			}
-			a.positions[string(r.Currency)].buy(r.ShareCount, r.ShareCount)
+			p.buy(r.ShareCount, r.ShareCount) // cash has price of 1.0
 		case record.CashOut:
-			if act.Currency == record.GBP && r.Currency != record.GBP {
-				return nil, fmt.Errorf("cannot deposit %s to account %v", r.Currency, act)
+			// If account is not multiple currency, then only cash out is same currency
+			if act.Currency != record.MULTIPLE && act.Currency != r.Currency {
+				return nil, fmt.Errorf("cannot cashout %s to account %v", r.Currency, act)
 			}
 			if p.quantity < r.ShareCount {
 				return nil, fmt.Errorf("trying to cashout %v, insufficient available quantity %f", r, p.quantity)
@@ -86,11 +83,17 @@ func accountInternal(act record.Account, records []*record.Record) (*Account, er
 			p.sell(r.ShareCount)
 		case record.TransferOut:
 			if p.quantity < r.ShareCount {
-				return nil, fmt.Errorf("trying to cashout %v, insufficient available quantity %f", r, p.quantity)
+				return nil, fmt.Errorf("trying to transfer out %v, insufficient available quantity %f", r, p.quantity)
 			}
 			p.sell(r.ShareCount)
 		case record.TransferIn:
 			p.buy(r.ShareCount, r.Total/r.ExchangeRate)
+		case record.Dividend:
+			// If account is not multiple currency, then only dividend is same currency - treated as cash in
+			if act.Currency != record.MULTIPLE && act.Currency != r.Currency {
+				return nil, fmt.Errorf("cannot deposit dividend in currency %s to account %v", r.Currency, act)
+			}
+			a.positions[string(r.Currency)].buy(r.ShareCount, r.ShareCount)
 		case record.Buy:
 			p.buy(r.ShareCount, r.Total/r.ExchangeRate)
 			if err := sellOtherSide(r, a); err != nil {
@@ -106,13 +109,15 @@ func accountInternal(act record.Account, records []*record.Record) (*Account, er
 				return nil, fmt.Errorf("error in parsing transaction %s", r.String())
 			}
 			p.split(newCt, oldCt)
+		default:
+			return nil, fmt.Errorf("invalid record type: %v", r)
 		}
 		oldDate = r.Timestamp.Truncate(24 * time.Hour)
 	}
 	// check again
 	for k, p := range a.positions {
 		if p.quantity < 0.0 {
-			return nil, fmt.Errorf("position %s became -ve on previous day: %f", k, p.quantity)
+			return nil, fmt.Errorf("position %s became -ve on previous day %v: %f", k, oldDate, p.quantity)
 		}
 	}
 	return a, nil

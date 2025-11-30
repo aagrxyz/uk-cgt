@@ -43,19 +43,21 @@ const (
 	CashOut
 	// Dividend
 	Dividend
+	WitholdingTax
 )
 
 // TransactionOrder - On a single day, this is the order the records need to be sorted by
 var TransactionOrder = map[TransactionType]int{
-	Rename:      0,
-	Split:       1,
-	TransferOut: 2,
-	TransferIn:  3,
-	CashIn:      4,
-	Dividend:    5,
-	Sell:        6,
-	Buy:         7,
-	CashOut:     8,
+	Rename:        0,
+	Split:         1,
+	TransferOut:   2,
+	TransferIn:    3,
+	CashIn:        4,
+	Dividend:      5,
+	WitholdingTax: 6,
+	Sell:          7,
+	Buy:           8,
+	CashOut:       9,
 }
 
 func (t TransactionType) String() string {
@@ -78,6 +80,8 @@ func (t TransactionType) String() string {
 		return "CASHOUT"
 	case Dividend:
 		return "DIVIDEND"
+	case WitholdingTax:
+		return "WITHOLDINGTAX"
 	}
 	return ""
 }
@@ -103,12 +107,14 @@ func NewTransactionType(s string) TransactionType {
 		return CashOut
 	case "DIVIDEND":
 		return Dividend
+	case "WITHOLDINGTAX":
+		return WitholdingTax
 	}
 	return Unknown
 }
 
 func (t TransactionType) IsMetadataEvent() bool {
-	return t == Split || t == Rename || t == TransferIn || t == TransferOut
+	return t == Split || t == Rename
 }
 
 func (t TransactionType) IsCashEvent() bool {
@@ -120,7 +126,7 @@ func (t TransactionType) IsUnknown() bool {
 }
 
 func (t TransactionType) IsDividend() bool {
-	return t == Dividend
+	return t == Dividend || t == WitholdingTax
 }
 
 // InverseAction returns the inverse of buy and sell

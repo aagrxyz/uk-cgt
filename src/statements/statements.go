@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"aagr.xyz/trades/db"
 	"aagr.xyz/trades/parser"
@@ -16,6 +18,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 )
+
+const epsilon = 1e-5
 
 type Statement struct {
 	parser        parser.Parser
@@ -77,6 +81,74 @@ func readRecords(statements []*Statement, rootDir string) ([]*record.Record, err
 	sort.Slice(records, func(i, j int) bool {
 		return records[i].Timestamp.Before(records[j].Timestamp)
 	})
+	renamed, err := handleRename(records)
+	if err != nil {
+		return nil, fmt.Errorf("cannot rename: %v", err)
+	}
+	dividendTaxAccounted, err := handleDividends(renamed)
+	if err != nil {
+		return nil, fmt.Errorf("cannot handle dividend tax: %v", err)
+	}
+	return dividendTaxAccounted, nil
+}
+
+func handleDividends(records []*record.Record) ([]*record.Record, error) {
+	type key struct {
+		ticker  string
+		account record.Account
+		date    time.Time
+	}
+	makeKey := func(r *record.Record) key {
+		return key{
+			ticker:  r.Ticker,
+			account: r.Broker,
+			date:    r.Timestamp.Truncate(24 * time.Hour),
+		}
+	}
+	byKey := make(map[key][]*record.Record)
+	var res []*record.Record
+	for _, r := range records {
+		switch r.Action {
+		case record.Dividend:
+			k := makeKey(r)
+			rCpy := *r
+			byKey[k] = append(byKey[k], &rCpy)
+		case record.WitholdingTax:
+			// handled in next loop
+			continue
+		default:
+			res = append(res, r)
+		}
+	}
+	for _, r := range records {
+		if r.Action != record.WitholdingTax {
+			continue
+		}
+		k := makeKey(r)
+		left := r.ShareCount
+		for i := 0; i < len(byKey[k]) && left > epsilon; i++ {
+			got := math.Min(byKey[k][i].ShareCount, left)
+			byKey[k][i].ShareCount -= got
+			byKey[k][i].Total -= (got * byKey[k][i].ExchangeRate)
+			left -= got
+			byKey[k][i].Description += fmt.Sprintf(" tax of %f ;", got)
+		}
+		if left > epsilon {
+			return nil, fmt.Errorf("cannot subtract witholding tax for record %v, left = %v", r, left)
+		}
+	}
+	for _, rs := range byKey {
+		for _, r := range rs {
+			if r.ShareCount < epsilon {
+				continue
+			}
+			res = append(res, r)
+		}
+	}
+	return res, nil
+}
+
+func handleRename(records []*record.Record) ([]*record.Record, error) {
 	// rename the tickers to most recent value
 	for _, r := range records {
 		if r.Action == record.Rename {
