@@ -15,12 +15,20 @@ import (
 
 const symbolJSONFilename = "outputs/symbols_db.json"
 
+type SymbolState string
+
+const (
+	Active   SymbolState = "Active"
+	Inactive SymbolState = "Inactive"
+)
+
 // Symbol stores metadata about a ticker
 type Symbol struct {
 	Names     []string         `json:"names"`
 	Currency  record.Currency  `json:"currency"`
 	AssetType record.AssetType `json:"asset_type"`
 	ETFType   string           `json:"etf_type"`
+	State     SymbolState      `json:"state"`
 
 	Metadata map[marketdata.Source]*marketdata.SourceMetadata `json:"source_metadata"`
 }
@@ -218,6 +226,10 @@ func EnrichFromMarket(md *marketdata.Service) error {
 		}
 		// Do not play around with forex
 		if meta.AssetType == record.FOREX_ASSET {
+			continue
+		}
+		// If symbol is inactive, then ignore it.
+		if meta.State == Inactive {
 			continue
 		}
 		mds, err := md.Metadata(ticker, meta.Currency, meta.Metadata)

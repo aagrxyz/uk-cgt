@@ -189,6 +189,12 @@ type TickerRow struct {
 func PortfolioRows(holdings map[string]*Holding, market *marketdata.Service) ([]*TickerRow, error) {
 	var res []*TickerRow
 	for ticker, h := range holdings {
+		hasTaxable := math.Abs(h.taxable.gbp.quantity-0.0) > epsilon
+		hasTaxExempt := math.Abs(h.taxable.gbp.quantity-0.0) > epsilon
+		// If there is no holding, then just continue, don't bother looking at the quote
+		if !(hasTaxExempt || hasTaxable) {
+			continue
+		}
 		quote, err := presentQuote(ticker, market)
 		if err != nil {
 			return nil, fmt.Errorf("cannot get quote: %v", err)

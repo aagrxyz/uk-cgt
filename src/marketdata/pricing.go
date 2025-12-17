@@ -56,6 +56,9 @@ type SourceMetadata struct {
 }
 
 func (s *SourceMetadata) Merge(other *SourceMetadata) (*SourceMetadata, error) {
+	if other == nil {
+		return s, nil
+	}
 	if other.Ticker == "" {
 		return s, nil
 	}
@@ -161,7 +164,7 @@ func (s *Service) Metadata(symbol string, currency record.Currency, old map[Sour
 		}
 		resp, err := b.QueryMetadata(md.Ticker)
 		if err != nil {
-			log.Errorf("cannot get metadata from source %s, merging old: %v", src, err)
+			log.Errorf("cannot get metadata from source %s for ticker %s, merging old: %v", src, md.Ticker, err)
 		}
 		new, err := md.Merge(resp)
 		if err != nil {
