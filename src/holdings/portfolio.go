@@ -190,7 +190,7 @@ func PortfolioRows(holdings map[string]*Holding, market *marketdata.Service) ([]
 	var res []*TickerRow
 	for ticker, h := range holdings {
 		hasTaxable := math.Abs(h.taxable.gbp.quantity-0.0) > epsilon
-		hasTaxExempt := math.Abs(h.taxable.gbp.quantity-0.0) > epsilon
+		hasTaxExempt := math.Abs(h.cgtExempt.gbp.quantity-0.0) > epsilon
 		// If there is no holding, then just continue, don't bother looking at the quote
 		if !(hasTaxExempt || hasTaxable) {
 			continue

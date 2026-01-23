@@ -60,6 +60,13 @@ type pool struct {
 	yearStats map[string]*stats
 }
 
+func (p *pool) String() string {
+	if p == nil {
+		return ""
+	}
+	return fmt.Sprintf("base position = %s, gbp position = %s, yearlyStats = %v", p.base, p.gbp, p.yearStats)
+}
+
 func newPool() *pool {
 	return &pool{
 		base:      &position{},
